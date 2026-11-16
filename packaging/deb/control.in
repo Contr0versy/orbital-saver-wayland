@@ -1,0 +1,16 @@
+Package: orbital-saver
+Version: @VERSION@
+Architecture: @ARCH@
+Maintainer: @MAINTAINER@
+Installed-Size: @SIZE@
+Section: x11
+Priority: optional
+Suggests: xfce4-screensaver | xscreensaver | mate-screensaver
+Homepage: https://github.com/codetheuri/orbital-saver
+Description: retro wireframe solar system screensaver for X11
+ Polyhedral planets, a ringed world, moons and a comet follow elliptical
+ Keplerian orbits around a central star, drawn as depth-faded wireframes
+ over a parallax starfield.
+ .
+ A single static binary with no library dependencies. Works with
+ xfce4-screensaver and xscreensaver, or standalone with --preview.

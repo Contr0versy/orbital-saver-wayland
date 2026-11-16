@@ -1,0 +1,48 @@
+# Maintainer: codetheuri <codetheuri at users dot noreply dot github dot com>
+#
+# Builds the latest commit on main. To try it locally:
+#
+#   cd packaging/aur && makepkg -si
+#
+# To publish on the AUR, this file (plus a generated .SRCINFO) goes into its
+# own repository at ssh://aur@aur.archlinux.org/orbital-saver-git.git
+
+pkgname=orbital-saver-git
+pkgver=r0
+pkgrel=1
+pkgdesc="Retro wireframe solar system screensaver for X11 with Keplerian orbits"
+arch=('x86_64' 'aarch64')
+url="https://github.com/codetheuri/orbital-saver"
+license=('MIT')
+makedepends=('go' 'git')
+optdepends=('xfce4-screensaver: run it as an Xfce screensaver theme'
+            'xscreensaver: run it as an xscreensaver hack')
+provides=('orbital-saver')
+conflicts=('orbital-saver')
+source=("orbital-saver::git+https://github.com/codetheuri/orbital-saver.git")
+sha256sums=('SKIP')
+
+pkgver() {
+  cd orbital-saver
+  (
+    set -o pipefail
+    git describe --long --tags 2>/dev/null | sed 's/^v//;s/\([^-]*-g\)/r\1/;s/-/./g' ||
+      printf 'r%s.%s' "$(git rev-list --count HEAD)" "$(git rev-parse --short HEAD)"
+  )
+}
+
+build() {
+  cd orbital-saver
+  make build VERSION="$pkgver" GOFLAGS='-trimpath -mod=readonly -modcacherw'
+}
+
+check() {
+  cd orbital-saver
+  go test ./...
+}
+
+package() {
+  cd orbital-saver
+  make install PREFIX=/usr DESTDIR="$pkgdir"
+  install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}

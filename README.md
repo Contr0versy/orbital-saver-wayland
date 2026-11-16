@@ -7,6 +7,10 @@ where the planets actually obey Kepler.
 No OpenGL, no game engine, no C. Just Go, the raw X11 protocol and some
 trigonometry.
 
+![orbital-saver running with the amber palette](docs/demo.gif)
+
+*Recorded at 2× speed.*
+
 ## What it does
 
 - Icosahedra, octahedra, a dodecahedron and a ringed globe orbit a star, with
@@ -17,6 +21,8 @@ trigonometry.
 - Lines fade with depth, and the starfield has true parallax.
 - Four palettes: `amber`, `cyber`, `mono`, `green`.
 - One static 2.7 MB binary, about 9 MB of RAM, no flicker.
+
+![The four palettes: amber, cyber, mono and green](docs/palettes.png)
 
 ## Try it
 
@@ -34,10 +40,28 @@ The window resizes freely. `Esc` or `q` quits.
 
 ## Install it as your screensaver
 
+Debian, Kali, Ubuntu: build a package and let apt look after it.
+
+```sh
+make deb
+sudo apt install ./dist/orbital-saver_*.deb    # sudo apt remove orbital-saver
+```
+
+Arch: there is a `PKGBUILD` that builds the latest `main` (untested by me,
+reports welcome).
+
+```sh
+cd packaging/aur && makepkg -si
+```
+
+Anything else:
+
 ```sh
 make
 sudo make install      # sudo make uninstall to remove
 ```
+
+Then switch it on:
 
 - **xfce4-screensaver** (tested on Kali): *Settings → Screensaver*, pick
   **Orbital Saver**. The button under the theme list opens its options.
@@ -47,9 +71,9 @@ sudo make install      # sudo make uninstall to remove
   `orbital-saver --window-id 0x3a00007`.
 
 Listed but the preview is black? xfce4-screensaver only runs programs from a
-few fixed directories, and `/usr/bin` is not one of them. `make install` puts
-a symlink in `/usr/lib/xscreensaver` for exactly that reason, so check it is
-there.
+few fixed directories, and `/usr/bin` is not one of them. Every install
+method above puts a symlink in `/usr/lib/xscreensaver` for exactly that
+reason, so check it is there.
 
 ## Flags
 
@@ -69,12 +93,12 @@ With no target it opens the preview. Single-dash forms (`-root`) work too.
 
 ## How it works
 
-```
+```text
 cmd/orbital-saver/   flags, signals, the 60 Hz loop
 internal/math3d/     vectors, rotations, camera, projection, clipping, meshes
 internal/scene/      Kepler solver, planets, starfield, palettes, renderer
 internal/x11/        window selection, double-buffered Pixmap, events
-packaging/           Makefile, .desktop entry, xscreensaver settings XML
+packaging/           Makefile, .desktop entry, settings XML, deb and AUR files
 ```
 
 All the 3D happens on the CPU in plain `float64`: solve each orbit, spin each
@@ -91,6 +115,13 @@ lives in the program, memory stays flat at any resolution.
 ```sh
 make test                                # vet + unit tests, no X server needed
 go test ./internal/scene -bench Frame    # CPU cost of one frame
+```
+
+Releasing: tag and push, and CI does the rest (tests, `.deb` for amd64 and
+arm64, checksums, GitHub release).
+
+```sh
+git tag v1.0.1 && git push origin v1.0.1
 ```
 
 - New palette: one entry in `internal/scene/palette.go`.

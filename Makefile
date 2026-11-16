@@ -1,7 +1,7 @@
 # Thin wrapper so the usual `make && sudo make install` works from the
 # repository root. The real rules live in packaging/Makefile.
 
-TARGETS := build test preview install uninstall clean
+TARGETS := build test preview install uninstall deb clean
 
 .DEFAULT_GOAL := build
 .PHONY: $(TARGETS)

@@ -5,6 +5,7 @@
 #   make                      build bin/orbital-saver
 #   sudo make install         install under /usr
 #   sudo make uninstall
+#   make deb                  build dist/orbital-saver_<version>_<arch>.deb
 #
 # Packagers: PREFIX and DESTDIR are honoured, e.g.
 #   make install PREFIX=/usr DESTDIR="$pkgdir"
@@ -31,7 +32,14 @@ GO      ?= go
 GOFLAGS ?= -trimpath
 LDFLAGS ?= -s -w -X main.version=$(VERSION)
 
-.PHONY: build test preview install uninstall clean
+# Debian package settings. A version tag such as v1.2.0 becomes 1.2.0; an
+# untagged build becomes 0~git.<commit>, which sorts below every release.
+DEB_VERSION    ?= $(shell echo '$(VERSION)' | sed -E 's/^v([0-9])/\1/; t; s/^/0~git./')
+DEB_ARCH       ?= $(shell dpkg --print-architecture 2>/dev/null)
+DEB_MAINTAINER ?= codetheuri <codetheuri@users.noreply.github.com>
+DEB_FILE       := $(ROOT)/dist/$(BINARY)_$(DEB_VERSION)_$(DEB_ARCH).deb
+
+.PHONY: build test preview install uninstall deb clean
 
 # CGO_ENABLED=0 gives a fully static binary with no libc or libX11 dependency.
 build:
@@ -60,5 +68,22 @@ uninstall:
 	rm -f $(DESTDIR)$(SAVERDIR)/orbital-saver.desktop
 	rm -f $(DESTDIR)$(XSSCONFDIR)/orbital-saver.xml
 
+# Runs a normal install into a fresh staging directory under build/ and wraps
+# it with dpkg-deb. No root needed: --root-owner-group makes the packaged
+# files root-owned. Staging directories are left for `make clean`.
+deb: build
+	@command -v dpkg-deb >/dev/null || { echo "dpkg-deb not found: 'make deb' needs a Debian-based system"; exit 1; }
+	@mkdir -p $(ROOT)/build $(ROOT)/dist
+	@stage=$$(mktemp -d $(ROOT)/build/deb.XXXXXX) && chmod 755 $$stage && \
+	$(MAKE) --no-print-directory -f $(ROOT)/packaging/Makefile install DESTDIR=$$stage PREFIX=/usr >/dev/null && \
+	install -Dm644 $(ROOT)/LICENSE $$stage/usr/share/doc/$(BINARY)/copyright && \
+	size=$$(du -sk $$stage | cut -f1) && \
+	install -d $$stage/DEBIAN && \
+	sed -e 's|@VERSION@|$(DEB_VERSION)|' -e 's|@ARCH@|$(DEB_ARCH)|' \
+	    -e 's|@MAINTAINER@|$(DEB_MAINTAINER)|' -e "s|@SIZE@|$$size|" \
+	    $(ROOT)/packaging/deb/control.in > $$stage/DEBIAN/control && \
+	dpkg-deb --build --root-owner-group $$stage $(DEB_FILE)
+	@echo "Install with: sudo apt install $(DEB_FILE)"
+
 clean:
-	rm -rf $(ROOT)/bin
+	rm -rf $(ROOT)/bin $(ROOT)/build $(ROOT)/dist

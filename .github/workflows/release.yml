@@ -1,0 +1,54 @@
+name: release
+
+# Push a tag such as v1.0.1 and this builds the .deb packages and publishes
+# them as a GitHub release. Re-pushing or re-running replaces the assets.
+on:
+  push:
+    tags: ['v[0-9]*']
+
+permissions:
+  contents: write # needed to create the release
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # `git describe` needs the tags to name the version
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+
+      - name: Test
+        run: make test
+
+      # Go cross-compiles, so one runner builds both architectures.
+      # `make deb` builds the binary itself and names the file from the tag.
+      - name: Build amd64 package
+        run: GOARCH=amd64 make deb DEB_ARCH=amd64
+
+      - name: Build arm64 package
+        run: GOARCH=arm64 make deb DEB_ARCH=arm64
+
+      - name: Check the packages
+        run: |
+          ls -l dist
+          test "$(ls dist/*.deb | wc -l)" -eq 2
+          for f in dist/*.deb; do dpkg-deb -I "$f" | grep -E 'Version|Architecture'; done
+          (cd dist && sha256sum *.deb > SHA256SUMS && cat SHA256SUMS)
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          # A tag like v1.1.0-rc1 is marked as a pre-release.
+          case "$TAG" in *-*) pre=--prerelease ;; *) pre= ;; esac
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/*.deb dist/SHA256SUMS --clobber
+          else
+            gh release create "$TAG" dist/*.deb dist/SHA256SUMS \
+              --title "$TAG" --generate-notes --verify-tag $pre
+          fi
