@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Orbital Saver
+Comment=Retro wireframe solar system with Keplerian orbits
+Exec=orbital-saver --root
+TryExec=orbital-saver
+StartupNotify=false
+Terminal=false
+Categories=Screensaver;
+OnlyShowIn=XFCE;MATE;
