@@ -1,0 +1,22 @@
+// orbital-saver snippet for ~/.config/niri/config.kdl
+//
+// Either start it here, before the shell, or use the systemd user unit
+// (systemctl --user enable --now orbital-saver.service), not both.
+spawn-at-startup "orbital-saver" "--background"
+
+// Turn off your shell's own wallpaper too (in Noctalia: the Wallpaper
+// section's enable switch). Two clients drawing on the background layer
+// have no defined order.
+
+layer-rule {
+    match namespace="^orbital-saver$"
+    // Show the live wallpaper behind the workspaces in the overview as
+    // well. Remove this if you prefer the plain backdrop there.
+    place-within-backdrop true
+}
+
+// Optional keys to freeze and resume the animation.
+binds {
+    Mod+Shift+F9 { spawn "pkill" "-USR1" "-x" "orbital-saver"; }
+    Mod+Shift+F10 { spawn "pkill" "-USR2" "-x" "orbital-saver"; }
+}

@@ -182,9 +182,8 @@ func (s *Scene) Draw(c Canvas, w, h int) {
 	if w < 2 || h < 2 {
 		return
 	}
-	elev := s.elevation()
-	cam := s.camera(elev)
-	vp := s.viewport(w, h, elev)
+	cam := s.camera(s.elevation())
+	vp := s.viewport(w, h)
 
 	s.drawStars(c, &cam, &vp)
 	for i := range s.bodies {
@@ -211,30 +210,25 @@ func (s *Scene) camera(elev float64) math3d.Camera {
 }
 
 // viewport picks the focal length so the whole system fits the window at
-// any aspect ratio. Seen from above the plane, the near side of the orbital
-// disc projects lower and larger than the far side, so the optical centre
-// is shifted up to keep the disc centred in the window.
-func (s *Scene) viewport(w, h int, elev float64) math3d.Viewport {
+// any aspect ratio, with the star in the centre. Seen from above the plane,
+// the near side of the orbital disc projects lower and larger than the far
+// side, so it is the near edge that limits the fit vertically.
+func (s *Scene) viewport(w, h int) math3d.Viewport {
 	r, d := s.extent, float64(camDistance)
-	// discEdges returns how far the near edge of the disc projects below
-	// the optical centre and the far edge above it, per unit focal length.
-	discEdges := func(elev float64) (below, above float64) {
-		rc, rs := r*math.Cos(elev), r*math.Sin(elev)
-		return rs / (d - rc), rs / (d + rc)
-	}
-	lateral := r / math.Sqrt(d*d-r*r) // half-width of the disc, same units
+	lateral := r / math.Sqrt(d*d-r*r) // half-width of the disc per unit focal length
 
-	// The focal length is fixed by the steepest view the camera reaches,
-	// so the picture does not zoom as the camera bobs.
-	below, above := discEdges(camElevMid + camElevSwing)
-	scale := math.Min(float64(w)/(2*lateral), float64(h)/(below+above)) / fitMargin
+	// How far the near edge of the disc projects below the star per unit
+	// focal length. The focal length is fixed by the steepest view the
+	// camera reaches, so the picture does not zoom as the camera bobs.
+	steep := camElevMid + camElevSwing
+	below := r * math.Sin(steep) / (d - r*math.Cos(steep))
+	scale := math.Min(float64(w)/(2*lateral), float64(h)/(2*below)) / fitMargin
 
-	below, above = discEdges(elev)
 	return math3d.Viewport{
 		W:     float64(w),
 		H:     float64(h),
 		CX:    float64(w) / 2,
-		CY:    float64(h)/2 - scale*(below-above)/2,
+		CY:    float64(h) / 2,
 		Scale: scale,
 		Near:  0.5,
 	}

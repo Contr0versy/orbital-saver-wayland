@@ -13,4 +13,6 @@ Description: retro wireframe solar system screensaver for X11
  over a parallax starfield.
  .
  A single static binary with no library dependencies. Works with
- xfce4-screensaver and xscreensaver, or standalone with --preview.
+ xfce4-screensaver and xscreensaver, or standalone with --preview. On
+ Wayland compositors with wlr-layer-shell it also runs as a power-aware
+ live wallpaper (--background) or screensaver (--screensaver).

@@ -10,7 +10,7 @@
 pkgname=orbital-saver-git
 pkgver=r0
 pkgrel=1
-pkgdesc="Retro wireframe solar system screensaver for X11 with Keplerian orbits"
+pkgdesc="Retro wireframe solar system screensaver and Wayland live wallpaper with Keplerian orbits"
 arch=('x86_64' 'aarch64')
 url="https://github.com/codetheuri/orbital-saver"
 license=('MIT')

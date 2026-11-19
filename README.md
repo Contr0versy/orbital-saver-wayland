@@ -20,7 +20,8 @@ trigonometry.
   end. Watch the comet.
 - Lines fade with depth, and the starfield has true parallax.
 - Four palettes: `amber`, `cyber`, `mono`, `green`.
-- One static 2.7 MB binary, about 9 MB of RAM, no flicker.
+- One static 2.9 MB binary, about 9 MB of RAM on X11, no flicker.
+- Runs natively on Wayland too, as a live wallpaper or a screensaver.
 
 ![The four palettes: amber, cyber, mono and green](docs/palettes.png)
 
@@ -75,6 +76,46 @@ few fixed directories, and `/usr/bin` is not one of them. Every install
 method above puts a symlink in `/usr/lib/xscreensaver` for exactly that
 reason, so check it is there.
 
+## Wayland: live wallpaper or screensaver
+
+On compositors with wlr-layer-shell (niri, sway, Hyprland, river; not
+GNOME) it draws on its own layer surface, no XWayland involved:
+
+```sh
+orbital-saver --background      # live wallpaper, behind every window
+orbital-saver --screensaver     # fullscreen on top; any input quits it
+```
+
+Wayland has no drawing service, so here the program rasterises its lines on
+the CPU into shared memory. It works to keep the battery cost down:
+
+- Only 32×32 cells whose contents changed are redrawn and reported to the
+  compositor as damage. On the default scene that is about 18% of the frame,
+  and it halves the CPU time of a full redraw.
+- A frame with no visible change is not sent at all.
+- It waits for the compositor's frame callback before drawing the next
+  frame, so while the wallpaper is hidden (lock screen, display off) it does
+  nothing at all.
+- Frame rate follows the power supply, without polling: `--fps` (default 60)
+  on AC, `--battery-fps` (default 20, `0` freezes) on battery, and a frozen
+  picture below `--freeze-below` percent charge (default 20). Rates are
+  rounded to divide the display's refresh rate, and frames are timed to the
+  display's refresh so each one stays on screen equally long.
+- `SIGUSR1` freezes the picture, `SIGUSR2` resumes it.
+- `--scale 1` on a HiDPI screen draws a quarter of the pixels, a little
+  softer.
+
+Run it at login with the systemd user unit that `make install` puts in
+place (`systemctl --user enable --now orbital-saver.service`), or with
+niri's `spawn-at-startup`; a snippet with a layer rule is in
+[`packaging/niri/orbital-saver.kdl`](packaging/niri/orbital-saver.kdl).
+Turn off your shell's own wallpaper, since two clients on the background
+layer have no defined order. For several monitors, run one process per
+output with `--output NAME`.
+
+`--screensaver` is not a lock: start it from your idle daemon before the
+lock screen.
+
 ## Flags
 
 | Flag | Default | |
@@ -88,8 +129,17 @@ reason, so check it is there.
 | `--stars N` | `1500` | Background stars |
 | `--line-width N` | `0` | Pixels; `0` picks 1, or 2 on 4K screens |
 | `--seed N` | `0` | Layout seed; `0` is different every run |
+| `--background` | | Wayland: live wallpaper on the background layer |
+| `--screensaver` | | Wayland: fullscreen on the overlay layer, quits on input |
+| `--output NAME` | | Wayland: output to cover, e.g. `eDP-1` |
+| `--scale N` | `0` | Wayland: buffer scale; `0` follows the output |
+| `--battery-fps N` | `20` | Wayland: frame rate on battery; `0` freezes |
+| `--freeze-below P` | `20` | Wayland: freeze on battery below P% charge |
+| `--full-redraw` | | Wayland: redraw everything every frame, for comparisons |
+| `--damage-rects N` | `256` | Wayland: damage rects per frame before merging |
+| `--stats` | | Wayland: print frame and commit counts on exit |
 
-With no target it opens the preview. Single-dash forms (`-root`) work too.
+With no target it opens the X11 preview. Single-dash forms (`-root`) work too.
 
 ## How it works
 
@@ -98,7 +148,11 @@ cmd/orbital-saver/   flags, signals, the 60 Hz loop
 internal/math3d/     vectors, rotations, camera, projection, clipping, meshes
 internal/scene/      Kepler solver, planets, starfield, palettes, renderer
 internal/x11/        window selection, double-buffered Pixmap, events
-packaging/           Makefile, .desktop entry, settings XML, deb and AUR files
+internal/wayland/    Wayland wire protocol, layer-shell surface, shm buffers
+internal/raster/     CPU line rasteriser with dirty-cell tracking
+internal/power/      AC/battery state from sysfs, changes via netlink uevents
+packaging/           Makefile, .desktop entry, settings XML, deb, AUR, RPM,
+                     systemd user unit, niri snippet
 ```
 
 All the 3D happens on the CPU in plain `float64`: solve each orbit, spin each
@@ -110,10 +164,15 @@ The X server only draws those lines. They go into an off-screen Pixmap, one
 frame. A half-drawn frame never reaches the screen, and since no framebuffer
 lives in the program, memory stays flat at any resolution.
 
+On Wayland the same lines are drawn by `internal/raster` into two
+shared-memory buffers in turn, and the program speaks the Wayland protocol
+itself, in pure Go, with no libwayland. The buffers do live in the program,
+so memory grows with the screen: about 45 MB at 2880×1920.
+
 ## Hacking
 
 ```sh
-make test                                # vet + unit tests, no X server needed
+make test                                # vet + unit tests, no display server needed
 go test ./internal/scene -bench Frame    # CPU cost of one frame
 ```
 

@@ -28,6 +28,10 @@ XSSCONFDIR ?= $(DATADIR)/xscreensaver/config
 # is on that list, so a symlink there is what makes the theme start.
 HACKDIR    ?= $(PREFIX)/lib/xscreensaver
 
+# Wayland: a systemd user unit for the live wallpaper, and a niri snippet.
+USERUNITDIR ?= $(PREFIX)/lib/systemd/user
+DOCDIR      ?= $(DATADIR)/doc/$(BINARY)
+
 GO      ?= go
 GOFLAGS ?= -trimpath
 LDFLAGS ?= -s -w -X main.version=$(VERSION)
@@ -60,6 +64,11 @@ install:
 	install -Dm644 $(ROOT)/packaging/orbital-saver.xml $(DESTDIR)$(XSSCONFDIR)/orbital-saver.xml
 	install -d $(DESTDIR)$(HACKDIR)
 	ln -sf $(BINDIR)/$(BINARY) $(DESTDIR)$(HACKDIR)/$(BINARY)
+	install -d $(DESTDIR)$(USERUNITDIR)
+	sed 's|@BINDIR@|$(BINDIR)|g' $(ROOT)/packaging/systemd/orbital-saver.service.in \
+		> $(DESTDIR)$(USERUNITDIR)/orbital-saver.service
+	chmod 644 $(DESTDIR)$(USERUNITDIR)/orbital-saver.service
+	install -Dm644 $(ROOT)/packaging/niri/orbital-saver.kdl $(DESTDIR)$(DOCDIR)/niri.kdl
 
 uninstall:
 	rm -f $(DESTDIR)$(BINDIR)/$(BINARY)
@@ -67,6 +76,9 @@ uninstall:
 	-rmdir $(DESTDIR)$(HACKDIR) 2>/dev/null || true
 	rm -f $(DESTDIR)$(SAVERDIR)/orbital-saver.desktop
 	rm -f $(DESTDIR)$(XSSCONFDIR)/orbital-saver.xml
+	rm -f $(DESTDIR)$(USERUNITDIR)/orbital-saver.service
+	rm -f $(DESTDIR)$(DOCDIR)/niri.kdl
+	-rmdir $(DESTDIR)$(DOCDIR) 2>/dev/null || true
 
 # Runs a normal install into a fresh staging directory under build/ and wraps
 # it with dpkg-deb. No root needed: --root-owner-group makes the packaged

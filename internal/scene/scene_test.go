@@ -3,6 +3,8 @@ package scene
 import (
 	"math"
 	"testing"
+
+	"github.com/codetheuri/orbital-saver/internal/math3d"
 )
 
 func TestSolveKepler(t *testing.T) {
@@ -133,5 +135,27 @@ func BenchmarkFrame(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		s.Advance(1.0 / 60)
 		s.Draw(nullCanvas{}, 1920, 1080)
+	}
+}
+
+func TestStarCentredAndSystemInFrame(t *testing.T) {
+	s := New(5, 0)
+	for _, size := range [][2]int{{2880, 1920}, {1920, 1080}, {1080, 1920}} {
+		w, h := size[0], size[1]
+		for i := 0; i < 600; i++ { // ten minutes: two camera laps, five bobs
+			s.Advance(1)
+			cam := s.camera(s.elevation())
+			vp := s.viewport(w, h)
+			x, y := vp.Project(cam.ToView(math3d.Vec3{}))
+			if math.Abs(x-float64(w)/2) > 0.5 || math.Abs(y-float64(h)/2) > 0.5 {
+				t.Fatalf("%dx%d: star at (%.1f, %.1f), want the centre", w, h, x, y)
+			}
+			for j := range s.bodies {
+				bx, by := vp.Project(cam.ToView(s.bodies[j].pos))
+				if bx < 0 || by < 0 || bx > float64(w) || by > float64(h) {
+					t.Fatalf("%dx%d: body %d at (%.0f, %.0f) is off screen", w, h, j, bx, by)
+				}
+			}
+		}
 	}
 }
