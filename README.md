@@ -94,7 +94,6 @@ the CPU. It works to keep the battery cost down:
   the compositor copies every frame into a texture; skipping that copy cut
   the cost of 30 fps by about 40% on a Framework 13 under niri. Without
   access to `/dev/udmabuf` it falls back to shared memory.
-
 - Only 32×32 cells whose contents changed are redrawn and reported to the
   compositor as damage. On the default scene that is about 18% of the frame,
   and it halves the CPU time of a full redraw.
@@ -178,10 +177,11 @@ The X server only draws those lines. They go into an off-screen Pixmap, one
 frame. A half-drawn frame never reaches the screen, and since no framebuffer
 lives in the program, memory stays flat at any resolution.
 
-On Wayland the same lines are drawn by `internal/raster` into two
-buffers in turn (dma-bufs, or shared memory as a fallback), and the program speaks the Wayland protocol
-itself, in pure Go, with no libwayland. The buffers do live in the program,
-so memory grows with the screen: about 45 MB at 2880×1920.
+On Wayland the same lines are drawn by `internal/raster` into two buffers
+in turn (dma-bufs, or shared memory as a fallback), and the program speaks
+the Wayland protocol itself, in pure Go, with no libwayland. The buffers do
+live in the program, so memory grows with the screen: about 45 MB at
+2880×1920.
 
 ## Hacking
 

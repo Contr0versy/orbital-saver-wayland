@@ -92,7 +92,7 @@ func run() error {
 		dmabuf       = flag.Bool("dmabuf", true, "")
 		stats        = flag.Bool("stats", false, "")
 		paletteName  = flag.String("palette", "amber", "")
-		fps          = flag.Int("fps", 0, "")
+		fps          = flag.Int("fps", 60, "")
 		speed        = flag.Float64("speed", 1, "")
 		stars        = flag.Int("stars", 1500, "")
 		lineWidth    = flag.Int("line-width", 0, "")
@@ -118,12 +118,6 @@ func run() error {
 	}
 	if onWayland && (*preview || *root || *windowID != "") {
 		return fmt.Errorf("--background and --screensaver are Wayland targets and cannot be combined with --preview, --root or --window-id")
-	}
-	if *fps == 0 {
-		*fps = 60
-		if onWayland {
-			*fps = 60
-		}
 	}
 	if *fps < 1 || *fps > 240 {
 		return fmt.Errorf("--fps must be between 1 and 240, got %d", *fps)

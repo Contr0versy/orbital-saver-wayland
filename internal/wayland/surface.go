@@ -453,14 +453,6 @@ func (s *Surface) Begin() (w, h int, ok bool) {
 	return w, h, true
 }
 
-// SetColors replaces the colour table and background. The next frame is
-// redrawn in full.
-func (s *Surface) SetColors(ramp []color.RGBA, background color.RGBA) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.canvas.SetColors(ramp, background)
-}
-
 // Line queues a line in ramp colour shade.
 func (s *Surface) Line(shade, x0, y0, x1, y1 int) { s.canvas.Line(shade, x0, y0, x1, y1) }
 
@@ -488,24 +480,18 @@ func (s *Surface) Present() (committed bool, err error) {
 			return false, err
 		}
 	}
-	var b *buffer
-	for i := range s.bufs {
-		if !s.bufs[i].busy {
-			b = &s.bufs[i]
-			break
-		}
+	i := 0
+	for i < len(s.bufs) && s.bufs[i].busy {
+		i++
 	}
-	if b == nil {
+	if i == len(s.bufs) {
 		s.canvas.Discard()
 		return false, s.c.flush()
 	}
+	b := &s.bufs[i]
 
 	var damage []raster.Rect
 	if s.gpuMemory != nil {
-		i := 0
-		if b == &s.bufs[1] {
-			i = 1
-		}
 		s.gpuMemory.beginCPU(i)
 		damage = s.canvas.Render(b.Buffer)
 		// Write back what the frame changed, in case the display engine
@@ -529,7 +515,8 @@ func (s *Surface) Present() (committed bool, err error) {
 	return true, s.c.flush()
 }
 
-// allocBuffers replaces the pool with two w×h buffers in one memfd.
+// allocBuffers replaces the buffers with two w×h ones: dma-bufs with
+// Config.DMABuf where they work, else shared memory in one memfd.
 func (s *Surface) allocBuffers(w, h int) error {
 	s.freeBuffers()
 	if s.cfg.DMABuf {
@@ -624,22 +611,9 @@ func (s *Surface) Close() {
 	if s.surface != 0 {
 		s.c.request(s.surface, 0) // destroy
 	}
-	for i := range s.bufs {
-		if s.bufs[i].id != 0 {
-			s.c.request(s.bufs[i].id, 0)
-		}
-	}
-	if s.pool != 0 {
-		s.c.request(s.pool, 1)
-	}
+	s.freeBuffers()
 	s.c.flush()
 	s.c.close()
-	if s.memory != nil {
-		s.memory.release()
-	}
-	if s.gpuMemory != nil {
-		s.gpuMemory.release()
-	}
 }
 
 func maxInt(a, b int) int {

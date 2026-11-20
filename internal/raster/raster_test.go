@@ -80,33 +80,6 @@ func TestUnchangedFrameHasNoDamage(t *testing.T) {
 	}
 }
 
-func TestSetColorsRedrawsEverything(t *testing.T) {
-	c := NewCanvas([]color.RGBA{white}, black, false)
-	c.SetSize(64, 64, 1)
-	bufs := []*Buffer{NewBuffer(make([]uint32, 64*64), 64, 64), NewBuffer(make([]uint32, 64*64), 64, 64)}
-	for _, b := range bufs {
-		c.Line(0, 0, 0, 63, 63)
-		c.Render(b)
-	}
-	red := color.RGBA{R: 255, A: 255}
-	c.SetColors([]color.RGBA{red}, white)
-	for i, b := range bufs {
-		c.Line(0, 0, 0, 63, 63)
-		// Once the first recoloured frame is shown, the same picture again
-		// is no change; the other buffer still catches up when used.
-		if c.Changed() != (i == 0) {
-			t.Fatalf("frame %d: Changed = %v", i, c.Changed())
-		}
-		d := c.Render(b)
-		if i == 0 && (len(d) != 1 || d[0] != (Rect{W: 64, H: 64})) {
-			t.Errorf("damage after recolour = %v, want the whole buffer", d)
-		}
-		if b.Pix[0] != Pack(red) || b.Pix[63] != Pack(white) {
-			t.Errorf("buffer %d not recoloured: %08x %08x", i, b.Pix[0], b.Pix[63])
-		}
-	}
-}
-
 func TestDamageMerging(t *testing.T) {
 	c, b := newTest(256, 256, 1, false)
 	c.Render(b)

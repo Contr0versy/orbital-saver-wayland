@@ -37,19 +37,14 @@ type Buffer struct {
 	Pix  []uint32 // W*H pixels, row-major, no padding
 	W, H int
 
-	cells  []uint64
-	valid  bool   // cells describes Pix; false until the first full render
-	colors uint64 // the Canvas colour generation Pix was drawn with
+	cells []uint64
+	valid bool // cells describes Pix; false until the first full render
 }
 
 // NewBuffer wraps pix (at least w*h pixels) as a render target.
 func NewBuffer(pix []uint32, w, h int) *Buffer {
 	return &Buffer{Pix: pix[:w*h], W: w, H: h}
 }
-
-// Invalidate forces the next render into b to redraw every cell, e.g.
-// after its memory was reused.
-func (b *Buffer) Invalidate() { b.valid = false }
 
 // Canvas collects one frame of primitives (it satisfies scene.Canvas) and
 // renders them. A Canvas is not safe for concurrent use.
@@ -58,7 +53,6 @@ type Canvas struct {
 	bg        uint32
 	full      bool // redraw and damage everything every frame
 	maxRects  int
-	colors    uint64 // bumped by SetColors; cell fingerprints ignore colour
 	w, h      int
 	cols      int
 	rows      int
@@ -91,20 +85,6 @@ func NewCanvas(ramp []color.RGBA, background color.RGBA, full bool) *Canvas {
 		c.ramp[i] = Pack(col)
 	}
 	return c
-}
-
-// SetColors replaces the colour table and background. The next frame is
-// redrawn and damaged in full, in every buffer.
-func (c *Canvas) SetColors(ramp []color.RGBA, background color.RGBA) {
-	if len(ramp) != len(c.ramp) {
-		panic("raster: colour table changed length")
-	}
-	for i, col := range ramp {
-		c.ramp[i] = Pack(col)
-	}
-	c.bg = Pack(background)
-	c.colors++
-	c.shownValid = false
 }
 
 // SetMaxRects caps how many rects Render returns. Past the cap, each row of
@@ -234,10 +214,6 @@ func (c *Canvas) Render(b *Buffer) []Rect {
 	}
 	if len(b.cells) != len(c.cells) {
 		b.cells = make([]uint64, len(c.cells))
-		b.valid = false
-	}
-	if b.colors != c.colors {
-		b.colors = c.colors
 		b.valid = false
 	}
 
