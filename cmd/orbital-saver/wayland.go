@@ -22,6 +22,8 @@ type waylandOptions struct {
 	batteryFPS  int  // 0 freezes
 	freezeBelow int  // percent; 0 never freezes
 	skipCovered bool // on niri, animate only the cells that show between windows
+	coveredFPS  int  // at most this rate while coveredAt percent or more is hidden; 0 off
+	coveredAt   int  // percent
 	fullRedraw  bool
 	damageRects int
 	dmabuf      bool
@@ -125,8 +127,17 @@ func runWayland(o waylandOptions, system *scene.Scene) error {
 		}()
 	}
 	updateRate := func() {
-		covered := !overview && surface.Visible() == 0
-		rate := snapFPS(targetFPS(o, supply, paused || covered), surface.Refresh())
+		shows := surface.Visible()
+		if overview {
+			shows = 1
+		}
+		rate := targetFPS(o, supply, paused || shows == 0)
+		// Gaps between windows are small and at the edge of the eye: a
+		// lower rate there saves the compositor frames nobody watches.
+		if o.coveredFPS > 0 && rate > o.coveredFPS && 100*(1-shows) >= float64(o.coveredAt) {
+			rate = o.coveredFPS
+		}
+		rate = snapFPS(rate, surface.Refresh())
 		if rate != fps {
 			fps = rate
 			due = time.Time{} // start a new timetable at the next frame

@@ -115,7 +115,10 @@ the CPU. It works to keep the battery cost down:
   stale picture. While part is covered it checks again every 5 seconds,
   for panels and notifications niri does not report. The capture is
   compared in memory and dropped. See-through windows and panels count as
-  covering. `--skip-covered=false` turns this off.
+  covering. While at least `--covered-at` percent of the screen is hidden
+  (default 10) it drops to `--covered-fps` (default 20); a screen that is
+  all or nearly all wallpaper keeps the full rate. `--skip-covered=false`
+  turns this off.
 - `SIGUSR1` freezes the picture, `SIGUSR2` resumes it.
 - `--scale 1` on a HiDPI screen draws a quarter of the pixels, a little
   softer.
@@ -150,6 +153,8 @@ lock screen.
 | `--scale N` | `0` | Wayland: buffer scale; `0` follows the output |
 | `--battery-fps N` | `60` | Wayland: frame rate on battery; `0` freezes |
 | `--skip-covered` | `true` | niri: animate only what shows between windows (found with a screen capture), freeze when nothing does |
+| `--covered-fps N` | `20` | niri: frame rate while partly covered; `0` keeps the normal rate |
+| `--covered-at P` | `10` | niri: percent of the screen hidden before `--covered-fps` applies |
 | `--freeze-below P` | `20` | Wayland: freeze on battery below P% charge |
 | `--full-redraw` | | Wayland: redraw everything every frame, for comparisons |
 | `--damage-rects N` | `256` | Wayland: damage rects per frame before merging |

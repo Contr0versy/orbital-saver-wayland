@@ -47,6 +47,12 @@ Wayland target (needs a compositor with wlr-layer-shell, e.g. niri or sway):
                      by comparing a screen capture with what was drawn after
                      each layout change; freeze when nothing shows (default
                      true; --skip-covered=false animates everything)
+  --covered-fps N    with --skip-covered, frame rate while at least
+                     --covered-at percent of the screen is hidden; the full
+                     rate is kept for a (nearly) uncovered screen. 0 uses
+                     the normal rate throughout (default 20)
+  --covered-at P     percent of the screen hidden before --covered-fps
+                     applies, 1-100 (default 10)
   --full-redraw      redraw the whole frame every time (for power comparisons)
   --damage-rects N   most damage rects per frame before they are merged (default 256)
   --dmabuf=false     send frames in shared memory instead of GPU buffers
@@ -89,6 +95,8 @@ func run() error {
 		batteryFPS  = flag.Int("battery-fps", 60, "")
 		freezeBelow = flag.Int("freeze-below", 20, "")
 		skipCovered = flag.Bool("skip-covered", true, "")
+		coveredFPS  = flag.Int("covered-fps", 20, "")
+		coveredAt   = flag.Int("covered-at", 10, "")
 		fullRedraw  = flag.Bool("full-redraw", false, "")
 		damageRects = flag.Int("damage-rects", 256, "")
 		dmabuf      = flag.Bool("dmabuf", true, "")
@@ -138,6 +146,12 @@ func run() error {
 	if *freezeBelow < 0 || *freezeBelow > 100 {
 		return fmt.Errorf("--freeze-below must be between 0 and 100, got %d", *freezeBelow)
 	}
+	if *coveredFPS < 0 || *coveredFPS > 240 {
+		return fmt.Errorf("--covered-fps must be between 0 and 240, got %d", *coveredFPS)
+	}
+	if *coveredAt < 1 || *coveredAt > 100 {
+		return fmt.Errorf("--covered-at must be between 1 and 100, got %d", *coveredAt)
+	}
 	if *scale < 0 || *scale > 4 {
 		return fmt.Errorf("--scale must be between 0 and 4, got %d", *scale)
 	}
@@ -171,6 +185,8 @@ func run() error {
 			batteryFPS:  *batteryFPS,
 			freezeBelow: *freezeBelow,
 			skipCovered: *skipCovered,
+			coveredFPS:  *coveredFPS,
+			coveredAt:   *coveredAt,
 			fullRedraw:  *fullRedraw,
 			damageRects: *damageRects,
 			dmabuf:      *dmabuf,
