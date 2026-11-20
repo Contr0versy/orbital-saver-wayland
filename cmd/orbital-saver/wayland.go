@@ -8,24 +8,27 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/codetheuri/orbital-saver/internal/niri"
 	"github.com/codetheuri/orbital-saver/internal/power"
 	"github.com/codetheuri/orbital-saver/internal/scene"
 	"github.com/codetheuri/orbital-saver/internal/wayland"
 )
 
 type waylandOptions struct {
-	screensaver bool
-	output      string
-	scale       int
-	fps         int // on AC
-	batteryFPS  int // 0 freezes
-	freezeBelow int // percent; 0 never freezes
-	fullRedraw  bool
-	damageRects int
-	stats       bool // print frame counts on exit
-	speed       float64
-	lineWidth   int
-	palette     scene.Palette
+	screensaver  bool
+	output       string
+	scale        int
+	fps          int // on AC
+	batteryFPS   int // 0 freezes
+	freezeBelow  int // percent; 0 never freezes
+	coveredBelow int // freeze while less than this percent shows between windows; 0 never
+	fullRedraw   bool
+	damageRects  int
+	dmabuf       bool
+	stats        bool // print frame counts on exit
+	speed        float64
+	lineWidth    int
+	palette      scene.Palette
 }
 
 // runWayland is the frame loop for a layer-shell surface. Unlike the X11
@@ -45,6 +48,7 @@ func runWayland(o waylandOptions, system *scene.Scene) error {
 		LineWidth:  o.lineWidth,
 		FullRedraw: o.fullRedraw,
 		MaxRects:   o.damageRects,
+		DMABuf:     o.dmabuf,
 	}
 	if o.screensaver {
 		cfg.Layer = wayland.LayerOverlay
@@ -67,22 +71,28 @@ func runWayland(o waylandOptions, system *scene.Scene) error {
 		fmt.Fprintln(os.Stderr, "orbital-saver: cannot watch the power supply:", err)
 	}
 
+	// Under niri, freeze while windows cover (nearly) all of the wallpaper.
+	// A screensaver covers the windows instead, so this is for wallpapers.
+	var layouts <-chan niri.State
+	var layout *niri.State
+	if !o.screensaver && o.coveredBelow > 0 {
+		layouts, _ = niri.Watch() // not niri, or no socket: always animate
+	}
+
 	timer := time.NewTimer(time.Hour)
 	stopTimer(timer)
 
 	var (
-		paused   bool
-		waiting  bool // a commit is out and its frame callback has not come
-		redraw   = true
-		fps      int
-		period   time.Duration // one refresh cycle of the output, 0 if unknown
-		vblank   time.Time     // when the last frame callback arrived
-		last     = time.Now()
-		lastDraw time.Time
-		start    = last
-		drawn    int // frames rendered
-		commits  int // frames sent to the compositor
-		frames   int // frame callbacks received
+		paused  bool
+		waiting bool // a commit is out and its frame callback has not come
+		redraw  = true
+		fps     int
+		due     time.Time // the next frame slot; slots are 1/fps apart
+		last    = time.Now()
+		start   = last
+		drawn   int // frames rendered
+		commits int // frames sent to the compositor
+		frames  int // frame callbacks received
 	)
 	// With --stats, a line every statsEvery and one at exit. The periodic
 	// lines show whether the compositor stops asking for frames, e.g. under
@@ -96,16 +106,20 @@ func runWayland(o waylandOptions, system *scene.Scene) error {
 		statsTick = ticker.C
 		defer func() {
 			secs := time.Since(start).Seconds()
-			fmt.Fprintf(os.Stderr, "orbital-saver: total %.1f s, %d frames drawn, %d committed (%.1f/s), %d frame callbacks\n",
-				secs, drawn, commits, float64(commits)/secs, frames)
+			fmt.Fprintf(os.Stderr, "orbital-saver: total %.1f s, %d frames drawn, %d committed (%.1f/s), %d frame callbacks; %s\n",
+				secs, drawn, commits, float64(commits)/secs, frames, surface.Buffers())
 		}()
 	}
 	updateRate := func() {
-		refresh := surface.Refresh()
-		fps = snapFPS(targetFPS(o, supply, paused), refresh)
-		period = 0
-		if refresh > 0 {
-			period = time.Duration(1e12 / int64(refresh)) // refresh is in mHz
+		covered := false
+		if layout != nil {
+			name, w, h := surface.Output()
+			covered = layout.Visible(name, float64(w), float64(h)) < float64(o.coveredBelow)/100
+		}
+		rate := snapFPS(targetFPS(o, supply, paused || covered), surface.Refresh())
+		if rate != fps {
+			fps = rate
+			due = time.Time{} // start a new timetable at the next frame
 		}
 	}
 	updateRate()
@@ -119,8 +133,10 @@ func runWayland(o waylandOptions, system *scene.Scene) error {
 			timer.Reset(0)
 		case waiting || fps == 0:
 			// The frame callback, or a change of policy, will call us.
+		case due.IsZero():
+			timer.Reset(0)
 		default:
-			timer.Reset(time.Until(nextFrame(lastDraw, vblank, time.Second/time.Duration(fps), period)))
+			timer.Reset(time.Until(due))
 		}
 	}
 
@@ -150,7 +166,10 @@ func runWayland(o waylandOptions, system *scene.Scene) error {
 			commits++
 		}
 		waiting = waiting || committed
-		lastDraw = now
+		// A redraw for a configure between slots leaves the timetable alone.
+		if fps > 0 && (due.IsZero() || !now.Before(due.Add(-time.Millisecond))) {
+			due = nextSlot(due, now, time.Second/time.Duration(fps))
+		}
 		return nil
 	}
 
@@ -174,7 +193,6 @@ func runWayland(o waylandOptions, system *scene.Scene) error {
 			}
 			if p.Frame {
 				waiting = false
-				vblank = time.Now()
 				frames++
 			}
 			if p.Configure {
@@ -183,6 +201,14 @@ func runWayland(o waylandOptions, system *scene.Scene) error {
 			}
 
 		case supply = <-supplyChanges:
+			updateRate()
+
+		case st, ok := <-layouts:
+			if ok {
+				layout = &st
+			} else {
+				layouts, layout = nil, nil // niri went away
+			}
 			updateRate()
 
 		case <-timer.C:
@@ -201,26 +227,25 @@ func runWayland(o waylandOptions, system *scene.Scene) error {
 	}
 }
 
-// nextFrame picks when to draw the next frame: one interval after the last
-// draw, moved to the nearest whole number of refresh cycles after the last
-// frame callback. Locking to the display's own rhythm keeps every frame on
-// screen for the same number of cycles; a free-running timer drifts against
-// it and now and then shows a frame for one cycle too many, which reads as
-// a stutter.
-func nextFrame(lastDraw, vblank time.Time, interval, period time.Duration) time.Time {
-	next := lastDraw.Add(interval)
-	if period <= 0 || vblank.IsZero() {
-		return next
+// nextSlot returns the frame slot after due on a fixed timetable of one
+// slot per interval, skipping slots that have already passed. Keeping to a
+// timetable, rather than timing each frame from the last one, means a late
+// frame does not push every later frame back, nor an early one pull them
+// forward: the average rate is exactly the target.
+func nextSlot(due, now time.Time, interval time.Duration) time.Time {
+	if due.IsZero() {
+		return now.Add(interval)
 	}
-	n := (next.Sub(vblank) + period/2) / period
-	if n < 0 {
-		n = 0
+	due = due.Add(interval)
+	if !due.After(now) {
+		due = due.Add((now.Sub(due)/interval + 1) * interval)
 	}
-	return vblank.Add(n * period)
+	return due
 }
 
 // targetFPS applies the power policy: full rate on AC, a lower one on
-// battery, and none at all (a still picture) when paused or nearly empty.
+// battery, and none at all (a still picture) when paused, covered by
+// windows or nearly empty.
 func targetFPS(o waylandOptions, st power.State, paused bool) int {
 	switch {
 	case paused:

@@ -29,6 +29,11 @@ func (s *Surface) dispatch(m *message) {
 		s.bufs[0].busy = false // wl_buffer.release
 	case id == s.bufs[1].id && id != 0:
 		s.bufs[1].busy = false
+	case id == s.dmabuf && id != 0:
+		// modifier(format, modifier_hi, modifier_lo)
+		if m.opcode == 1 && m.uint(0) == drmFormatXRGB8888 && m.uint(1) == 0 && m.uint(2) == drmModLinear {
+			s.dmabufLinear = true
+		}
 	case id == s.seat && id != 0:
 		s.seatEvent(m)
 	case id == s.keyboard && id != 0:
@@ -77,6 +82,10 @@ func (s *Surface) registryEvent(m *message) {
 			o := &output{name: name, version: v, outputName: fmt.Sprintf("output-%d", name)}
 			o.id = s.bind(name, iface, v)
 			s.outputs = append(s.outputs, o)
+		case "zwp_linux_dmabuf_v1":
+			if s.cfg.DMABuf && version >= dmabufVersion {
+				s.dmabuf = s.bind(name, iface, dmabufVersion)
+			}
 		case "wl_seat":
 			// Only a screensaver listens to input, and only the first seat.
 			if s.cfg.Layer == LayerOverlay && s.seat == 0 {

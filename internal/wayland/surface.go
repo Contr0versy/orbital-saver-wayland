@@ -1,11 +1,12 @@
 // Package wayland draws the scene on a wlr-layer-shell surface: behind
 // every window as a live wallpaper, or above everything as a screensaver.
 // It speaks the Wayland wire protocol directly, in pure Go, and rasterises
-// on the CPU into shared-memory buffers.
+// on the CPU into dma-bufs the GPU reads in place (see dmabuf.go), or into
+// shared-memory buffers where dma-bufs are not available.
 //
 // Only the handful of interfaces the program needs are implemented:
-// wl_compositor, wl_shm, wl_output, wl_seat (screensaver mode) and
-// zwlr_layer_shell_v1.
+// wl_compositor, wl_shm, wl_output, wl_seat (screensaver mode),
+// zwlr_layer_shell_v1 and, with Config.DMABuf, zwp_linux_dmabuf_v1.
 package wayland
 
 import (
@@ -41,6 +42,7 @@ type Config struct {
 
 	FullRedraw bool // redraw and damage the whole surface every frame
 	MaxRects   int  // cap on damage rects per frame; 0 = raster default
+	DMABuf     bool // hand the compositor dma-bufs where it can take them, else shared memory
 }
 
 // Pending is what happened since the last call to Surface.Pending.
@@ -59,6 +61,7 @@ const (
 	outputVersion     = 4 // names
 	seatVersion       = 5
 	layerShellVersion = 4
+	dmabufVersion     = 3 // the last version that lists modifiers as events
 )
 
 const pixelFormatXRGB8888 = 1
@@ -89,11 +92,11 @@ type Surface struct {
 	mu sync.Mutex // everything below, and all writes to conn
 	c  *conn
 
-	registry, compositor, shm, layerShell, seat uint32
-	compositorVer                               uint32
-	outputs                                     []*output
-	target                                      *output // the output we asked for, or nil
-	entered                                     *output // the output the surface is on
+	registry, compositor, shm, layerShell, seat, dmabuf uint32
+	compositorVer                                       uint32
+	outputs                                             []*output
+	target                                              *output // the output we asked for, or nil
+	entered                                             *output // the output the surface is on
 
 	surface, layerSurface uint32
 	keyboard, pointer     uint32
@@ -103,8 +106,12 @@ type Surface struct {
 	syncFinished bool
 	frameCB      uint32
 
+	dmabufLinear bool  // the compositor takes linear XRGB8888 dma-bufs
+	dmabufErr    error // why Config.DMABuf fell back to shared memory
+
 	pool      uint32
 	memory    *sharedMemory
+	gpuMemory *dmabufMemory // instead of pool and memory with Config.DMABuf
 	bufs      [2]buffer
 	bufW      int
 	bufH      int
@@ -165,9 +172,14 @@ func (s *Surface) init() error {
 		return errors.New("the compositor does not support wlr-layer-shell " +
 			"(niri, sway, Hyprland, river and KDE do; GNOME does not)")
 	}
-	// A second round trip collects every output's name, scale and mode.
+	// A second round trip collects every output's name, scale and mode,
+	// and the dma-buf formats.
 	if err := s.roundtrip(); err != nil {
 		return err
+	}
+	if s.cfg.DMABuf && !s.dmabufLinear {
+		s.cfg.DMABuf = false
+		s.dmabufErr = errors.New("the compositor does not take linear XRGB8888 dma-bufs")
 	}
 
 	if s.cfg.Output != "" {
@@ -333,6 +345,31 @@ func (s *Surface) Refresh() int {
 	return 0
 }
 
+// Buffers says what kind of buffers the frames go to the compositor in,
+// and why not dma-bufs if they were asked for and are not used.
+func (s *Surface) Buffers() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	switch {
+	case s.gpuMemory != nil:
+		return "dma-bufs"
+	case s.dmabufErr != nil:
+		return "shared memory (no dma-bufs: " + s.dmabufErr.Error() + ")"
+	}
+	return "shared memory"
+}
+
+// Output returns the name of the output the surface is on ("" if not
+// known yet) and the surface's size in logical pixels.
+func (s *Surface) Output() (name string, w, h int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if o := s.output(); o != nil {
+		name = o.outputName
+	}
+	return name, s.logicalW, s.logicalH
+}
+
 // output is the output that decides our scale and refresh rate.
 func (s *Surface) output() *output {
 	switch {
@@ -461,7 +498,18 @@ func (s *Surface) Present() (committed bool, err error) {
 		return false, s.c.flush()
 	}
 
-	damage := s.canvas.Render(b.Buffer)
+	var damage []raster.Rect
+	if s.gpuMemory != nil {
+		i := 0
+		if b == &s.bufs[1] {
+			i = 1
+		}
+		s.gpuMemory.beginCPU(i)
+		damage = s.canvas.Render(b.Buffer)
+		s.gpuMemory.endCPU(i)
+	} else {
+		damage = s.canvas.Render(b.Buffer)
+	}
 	s.c.request(s.surface, 1, b.id, 0, 0) // attach
 	for _, r := range damage {
 		s.c.request(s.surface, 9, uint32(r.X), uint32(r.Y), uint32(r.W), uint32(r.H)) // damage_buffer
@@ -478,6 +526,15 @@ func (s *Surface) Present() (committed bool, err error) {
 // allocBuffers replaces the pool with two w×h buffers in one memfd.
 func (s *Surface) allocBuffers(w, h int) error {
 	s.freeBuffers()
+	if s.cfg.DMABuf {
+		mem, err := newDMABufMemory(len(s.bufs), w*4*h)
+		if err == nil {
+			return s.useDMABufs(mem, w, h)
+		}
+		// Most likely no access to /dev/udmabuf. Shared memory always works.
+		s.cfg.DMABuf = false
+		s.dmabufErr = err
+	}
 	stride := w * 4
 	size := stride * h
 	mem, err := newSharedMemory(2 * size)
@@ -502,6 +559,27 @@ func (s *Surface) allocBuffers(w, h int) error {
 	return nil
 }
 
+// useDMABufs makes two w×h linear buffers out of mem's dma-bufs.
+func (s *Surface) useDMABufs(mem *dmabufMemory, w, h int) error {
+	stride := w * 4
+	for i := range s.bufs {
+		params := s.c.newID()
+		s.c.request(s.dmabuf, 1, params) // create_params
+		s.c.putFD(mem.fds[i])
+		s.c.request(params, 1, 0, 0, uint32(stride), 0, drmModLinear) // add(fd out of band, plane, offset, stride, modifier hi, lo)
+		id := s.c.newID()
+		s.c.request(params, 3, id, uint32(w), uint32(h), drmFormatXRGB8888, 0) // create_immed
+		s.c.request(params, 0)                                                 // destroy
+		s.bufs[i] = buffer{id: id, Buffer: raster.NewBuffer(mem.pixels(i, w*h), w, h)}
+	}
+	if err := s.c.flush(); err != nil {
+		mem.release()
+		return err
+	}
+	s.gpuMemory, s.bufW, s.bufH = mem, w, h
+	return nil
+}
+
 func (s *Surface) freeBuffers() {
 	for i := range s.bufs {
 		if s.bufs[i].id != 0 {
@@ -517,6 +595,10 @@ func (s *Surface) freeBuffers() {
 		// The compositor keeps its own mapping; ours can go.
 		s.memory.release()
 		s.memory = nil
+	}
+	if s.gpuMemory != nil {
+		s.gpuMemory.release()
+		s.gpuMemory = nil
 	}
 	s.bufW, s.bufH = 0, 0
 }
@@ -547,6 +629,9 @@ func (s *Surface) Close() {
 	s.c.close()
 	if s.memory != nil {
 		s.memory.release()
+	}
+	if s.gpuMemory != nil {
+		s.gpuMemory.release()
 	}
 }
 

@@ -5,6 +5,7 @@ import (
 	"net"
 	"os"
 	"strconv"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -205,6 +206,7 @@ func TestSurfaceAgainstFakeCompositor(t *testing.T) {
 		Output:     "eDP-1",
 		Background: color.RGBA{A: 255},
 		Ramp:       []color.RGBA{{R: 255, A: 255}},
+		DMABuf:     true, // the fake offers no zwp_linux_dmabuf_v1: falls back
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -246,6 +248,9 @@ func TestSurfaceAgainstFakeCompositor(t *testing.T) {
 		t.Errorf("missing requests %v in %v", want, log)
 	}
 	waitFor(t, s, func(p Pending) bool { return p.Frame })
+	if b := s.Buffers(); !strings.HasPrefix(b, "shared memory (no dma-bufs") {
+		t.Errorf("Buffers = %q, want a fallback to shared memory", b)
+	}
 
 	// The same picture again: nothing to commit.
 	s.Begin()

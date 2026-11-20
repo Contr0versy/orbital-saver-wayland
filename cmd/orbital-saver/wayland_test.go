@@ -44,22 +44,27 @@ func TestTargetFPS(t *testing.T) {
 	}
 }
 
-func TestNextFrameLocksToRefresh(t *testing.T) {
-	const period = time.Second / 120
-	interval := time.Second / 60
+func TestNextSlotKeepsTheTimetable(t *testing.T) {
+	interval := time.Second / 30
 	base := time.Unix(1000, 0)
-	// The last frame was drawn 1 ms after a refresh; its callback came one
-	// cycle later. The next frame lands exactly two cycles after the first
-	// refresh, whatever the timer jitter in lastDraw.
-	for _, jitter := range []time.Duration{0, time.Millisecond, 3 * time.Millisecond} {
-		lastDraw := base.Add(jitter)
-		vblank := base.Add(period)
-		if got, want := nextFrame(lastDraw, vblank, interval, period), base.Add(2*period); !got.Equal(want) {
-			t.Errorf("jitter %v: next = %v, want %v", jitter, got.Sub(base), want.Sub(base))
-		}
+	due := nextSlot(time.Time{}, base, interval)
+	for frame := 1; frame <= 300; frame++ {
+		// Draw anywhere from on time to 0.9 of a slot late: the slots stay
+		// put, so 300 frames take exactly 300 intervals.
+		late := time.Duration(frame%10) * interval / 10
+		due = nextSlot(due, due.Add(late), interval)
 	}
-	// Refresh rate unknown: plain interval.
-	if got := nextFrame(base, time.Time{}, interval, 0); !got.Equal(base.Add(interval)) {
-		t.Errorf("unlocked next = %v", got.Sub(base))
+	if want := base.Add(301 * interval); !due.Equal(want) {
+		t.Errorf("slot after 300 frames = %v, want %v", due.Sub(base), want.Sub(base))
+	}
+	// A long stall (hidden surface) skips the missed slots instead of
+	// racing to catch up.
+	stalled := due.Add(10*time.Second + interval/2)
+	next := nextSlot(due, stalled, interval)
+	if !next.After(stalled) || next.Sub(stalled) > interval {
+		t.Errorf("after a stall the next slot is %v away, want within one interval", next.Sub(stalled))
+	}
+	if (next.Sub(base) % interval) != 0 {
+		t.Errorf("after a stall the next slot left the timetable")
 	}
 }

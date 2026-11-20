@@ -87,7 +87,13 @@ orbital-saver --screensaver     # fullscreen on top; any input quits it
 ```
 
 Wayland has no drawing service, so here the program rasterises its lines on
-the CPU into shared memory. It works to keep the battery cost down:
+the CPU. It works to keep the battery cost down:
+
+- Frames go to the compositor as GPU buffers (dma-bufs made with
+  `/dev/udmabuf`), which the GPU reads where they are. With shared memory
+  the compositor copies every frame into a texture; skipping that copy cut
+  the cost of 30 fps by about 40% on a Framework 13 under niri. Without
+  access to `/dev/udmabuf` it falls back to shared memory.
 
 - Only 32×32 cells whose contents changed are redrawn and reported to the
   compositor as damage. On the default scene that is about 18% of the frame,
@@ -97,10 +103,15 @@ the CPU into shared memory. It works to keep the battery cost down:
   frame, so while the wallpaper is hidden (lock screen, display off) it does
   nothing at all.
 - Frame rate follows the power supply, without polling: `--fps` (default 60)
-  on AC, `--battery-fps` (default 20, `0` freezes) on battery, and a frozen
+  on AC, `--battery-fps` (default 30, `0` freezes) on battery, and a frozen
   picture below `--freeze-below` percent charge (default 20). Rates are
   rounded to divide the display's refresh rate, and frames are timed to the
   display's refresh so each one stays on screen equally long.
+- Under niri it follows the window layout over niri's IPC socket and
+  freezes while windows leave less than `--covered-below` percent of the
+  wallpaper showing (default 10): a maximized window leaves only the gaps.
+  It animates on an empty workspace and in the overview. Windows are assumed
+  to be opaque.
 - `SIGUSR1` freezes the picture, `SIGUSR2` resumes it.
 - `--scale 1` on a HiDPI screen draws a quarter of the pixels, a little
   softer.
@@ -133,10 +144,12 @@ lock screen.
 | `--screensaver` | | Wayland: fullscreen on the overlay layer, quits on input |
 | `--output NAME` | | Wayland: output to cover, e.g. `eDP-1` |
 | `--scale N` | `0` | Wayland: buffer scale; `0` follows the output |
-| `--battery-fps N` | `20` | Wayland: frame rate on battery; `0` freezes |
+| `--battery-fps N` | `30` | Wayland: frame rate on battery; `0` freezes |
+| `--covered-below P` | `10` | niri: freeze while windows leave less than P% of the wallpaper showing; `0` never |
 | `--freeze-below P` | `20` | Wayland: freeze on battery below P% charge |
 | `--full-redraw` | | Wayland: redraw everything every frame, for comparisons |
 | `--damage-rects N` | `256` | Wayland: damage rects per frame before merging |
+| `--dmabuf=false` | | Wayland: send frames in shared memory instead of GPU buffers (`/dev/udmabuf`). Falls back to shared memory by itself when GPU buffers are unavailable |
 | `--stats` | | Wayland: print frame and commit counts on exit |
 
 With no target it opens the X11 preview. Single-dash forms (`-root`) work too.
@@ -148,9 +161,10 @@ cmd/orbital-saver/   flags, signals, the 60 Hz loop
 internal/math3d/     vectors, rotations, camera, projection, clipping, meshes
 internal/scene/      Kepler solver, planets, starfield, palettes, renderer
 internal/x11/        window selection, double-buffered Pixmap, events
-internal/wayland/    Wayland wire protocol, layer-shell surface, shm buffers
+internal/wayland/    Wayland wire protocol, layer-shell surface, dma-buf and shm buffers
 internal/raster/     CPU line rasteriser with dirty-cell tracking
 internal/power/      AC/battery state from sysfs, changes via netlink uevents
+internal/niri/       window layout from niri's IPC event stream
 packaging/           Makefile, .desktop entry, settings XML, deb, AUR, RPM,
                      systemd user unit, niri snippet
 ```
@@ -165,7 +179,7 @@ frame. A half-drawn frame never reaches the screen, and since no framebuffer
 lives in the program, memory stays flat at any resolution.
 
 On Wayland the same lines are drawn by `internal/raster` into two
-shared-memory buffers in turn, and the program speaks the Wayland protocol
+buffers in turn (dma-bufs, or shared memory as a fallback), and the program speaks the Wayland protocol
 itself, in pure Go, with no libwayland. The buffers do live in the program,
 so memory grows with the screen: about 45 MB at 2880×1920.
 
