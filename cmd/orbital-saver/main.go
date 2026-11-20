@@ -49,10 +49,10 @@ Wayland target (needs a compositor with wlr-layer-shell, e.g. niri or sway):
                      true; --skip-covered=false animates everything)
   --covered-fps N    with --skip-covered, frame rate while at least
                      --covered-at percent of the screen is hidden; the full
-                     rate is kept for a (nearly) uncovered screen. 0 uses
+                     rate is kept while about half or less is hidden. 0 uses
                      the normal rate throughout (default 20)
   --covered-at P     percent of the screen hidden before --covered-fps
-                     applies, 1-100 (default 10)
+                     applies, 1-100 (default 60)
   --full-redraw      redraw the whole frame every time (for power comparisons)
   --damage-rects N   most damage rects per frame before they are merged (default 256)
   --dmabuf=false     send frames in shared memory instead of GPU buffers
@@ -96,7 +96,7 @@ func run() error {
 		freezeBelow = flag.Int("freeze-below", 20, "")
 		skipCovered = flag.Bool("skip-covered", true, "")
 		coveredFPS  = flag.Int("covered-fps", 20, "")
-		coveredAt   = flag.Int("covered-at", 10, "")
+		coveredAt   = flag.Int("covered-at", 60, "")
 		fullRedraw  = flag.Bool("full-redraw", false, "")
 		damageRects = flag.Int("damage-rects", 256, "")
 		dmabuf      = flag.Bool("dmabuf", true, "")
