@@ -15,20 +15,20 @@ import (
 )
 
 type waylandOptions struct {
-	screensaver  bool
-	output       string
-	scale        int
-	fps          int // on AC
-	batteryFPS   int // 0 freezes
-	freezeBelow  int // percent; 0 never freezes
-	coveredBelow int // freeze while less than this percent shows between windows; 0 never
-	fullRedraw   bool
-	damageRects  int
-	dmabuf       bool
-	stats        bool // print frame counts on exit
-	speed        float64
-	lineWidth    int
-	palette      scene.Palette
+	screensaver bool
+	output      string
+	scale       int
+	fps         int  // on AC
+	batteryFPS  int  // 0 freezes
+	freezeBelow int  // percent; 0 never freezes
+	skipCovered bool // on niri, animate only the cells that show between windows
+	fullRedraw  bool
+	damageRects int
+	dmabuf      bool
+	stats       bool // print frame counts on exit
+	speed       float64
+	lineWidth   int
+	palette     scene.Palette
 }
 
 // runWayland is the frame loop for a layer-shell surface. Unlike the X11
@@ -71,13 +71,27 @@ func runWayland(o waylandOptions, system *scene.Scene) error {
 		fmt.Fprintln(os.Stderr, "orbital-saver: cannot watch the power supply:", err)
 	}
 
-	// Under niri, freeze while windows cover (nearly) all of the wallpaper.
+	// Under niri, animate only the cells that show between windows, and
+	// freeze when none do. After every layout change everything animates
+	// until niri's animations settle; then a capture of the screen says
+	// what shows. While part is covered it is checked again now and then,
+	// for what niri does not report: the shell's panels, notifications.
 	// A screensaver covers the windows instead, so this is for wallpapers.
+	const settleDelay = 600 * time.Millisecond
+	const recheckEvery = 5 * time.Second
 	var layouts <-chan niri.State
-	var layout *niri.State
-	if !o.screensaver && o.coveredBelow > 0 {
+	var recheck <-chan time.Time
+	var overview bool
+	if !o.screensaver && o.skipCovered {
 		layouts, _ = niri.Watch() // not niri, or no socket: always animate
 	}
+	if layouts != nil {
+		ticker := time.NewTicker(recheckEvery)
+		defer ticker.Stop()
+		recheck = ticker.C
+	}
+	settle := time.NewTimer(time.Hour)
+	stopTimer(settle)
 
 	timer := time.NewTimer(time.Hour)
 	stopTimer(timer)
@@ -111,11 +125,7 @@ func runWayland(o waylandOptions, system *scene.Scene) error {
 		}()
 	}
 	updateRate := func() {
-		covered := false
-		if layout != nil {
-			name, w, h := surface.Output()
-			covered = layout.Visible(name, float64(w), float64(h)) < float64(o.coveredBelow)/100
-		}
+		covered := !overview && surface.Visible() == 0
 		rate := snapFPS(targetFPS(o, supply, paused || covered), surface.Refresh())
 		if rate != fps {
 			fps = rate
@@ -213,17 +223,35 @@ func runWayland(o waylandOptions, system *scene.Scene) error {
 				redraw = true
 				updateRate() // the output, and so its refresh rate, may have changed
 			}
+			if p.Visibility {
+				updateRate() // freeze if nothing shows, resume if something does
+			}
 
 		case supply = <-supplyChanges:
 			updateRate()
 
 		case st, ok := <-layouts:
-			if ok {
-				layout = &st
-			} else {
-				layouts, layout = nil, nil // niri went away
+			overview = ok && st.Overview
+			if !ok {
+				layouts = nil // niri went away
 			}
+			surface.ShowAll()
+			stopTimer(settle)
+			settle.Reset(settleDelay)
 			updateRate()
+
+		case <-settle.C:
+			// The overview shows the wallpaper scaled: nothing to compare.
+			if !overview && !surface.Capture() && commits == 0 {
+				settle.Reset(settleDelay) // nothing on screen to compare with yet
+			}
+			continue
+
+		case <-recheck:
+			if !overview && surface.Visible() < 1 {
+				surface.Capture()
+			}
+			continue
 
 		case <-timer.C:
 			if err := draw(); err != nil {
@@ -231,9 +259,9 @@ func runWayland(o waylandOptions, system *scene.Scene) error {
 			}
 
 		case <-statsTick:
-			fmt.Fprintf(os.Stderr, "orbital-saver: %s  %2d fps target, %5.1f commits/s, %5.1f frame callbacks/s\n",
+			fmt.Fprintf(os.Stderr, "orbital-saver: %s  %2d fps target, %5.1f commits/s, %5.1f frame callbacks/s, %3.0f%% showing\n",
 				time.Now().Format("15:04:05"), fps,
-				float64(commits-tickCommits)/5, float64(frames-tickFrames)/5)
+				float64(commits-tickCommits)/5, float64(frames-tickFrames)/5, 100*surface.Visible())
 			tickCommits, tickFrames = commits, frames
 			continue // nothing to reschedule
 		}

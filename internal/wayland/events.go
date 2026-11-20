@@ -29,6 +29,8 @@ func (s *Surface) dispatch(m *message) {
 		s.bufs[0].busy = false // wl_buffer.release
 	case id == s.bufs[1].id && id != 0:
 		s.bufs[1].busy = false
+	case s.capt != nil && id == s.capt.frame:
+		s.captureEvent(m)
 	case id == s.dmabuf && id != 0:
 		// modifier(format, modifier_hi, modifier_lo)
 		if m.opcode == 1 && m.uint(0) == drmFormatXRGB8888 && m.uint(1) == 0 && m.uint(2) == drmModLinear {
@@ -85,6 +87,12 @@ func (s *Surface) registryEvent(m *message) {
 		case "zwp_linux_dmabuf_v1":
 			if s.cfg.DMABuf && version >= dmabufVersion {
 				s.dmabuf = s.bind(name, iface, dmabufVersion)
+			}
+		case "zwlr_screencopy_manager_v1":
+			// Only a wallpaper needs to know what covers it.
+			if s.cfg.Layer == LayerBackground {
+				s.screencopyVer = minU32(version, screencopyVersion)
+				s.screencopy = s.bind(name, iface, s.screencopyVer)
 			}
 		case "wl_seat":
 			// Only a screensaver listens to input, and only the first seat.

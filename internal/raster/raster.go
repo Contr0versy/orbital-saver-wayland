@@ -24,6 +24,19 @@ const cellSize = 1 << CellShift
 // about 210 rects and covers about 18% of the frame.
 const DefaultMaxRects = 256
 
+// VisibleCells compares every SampleStep-th pixel of every SampleStep-th
+// row, 64 points in a cell: a whole comparison of a 2880x1920 screen took
+// 20 ms, longer than a frame. A cell shows when MinVisibleSamples of its
+// points match. A 12-pixel gap still gets three columns of points.
+const (
+	SampleStep        = 4
+	MinVisibleSamples = 2
+)
+
+// staleCell marks a cell fingerprint as unknown, so the cell is redrawn
+// and damaged the next time it shows.
+const staleCell = 0x5ca1ab1edeadbeef
+
 // Rect is a damaged area in buffer pixels.
 type Rect struct{ X, Y, W, H int }
 
@@ -65,6 +78,7 @@ type Canvas struct {
 	shown      []uint64 // fingerprint per cell of the last rendered frame
 	shownValid bool
 	mask       []bool // cells being redrawn in the current Render
+	visible    []bool // cells that show on screen; nil means all
 	damage     []Rect
 	open       []int // damage rects that may still grow downwards
 }
@@ -121,9 +135,23 @@ func (c *Canvas) SetSize(w, h, lineWidth int) {
 	c.cells = make([]uint64, n)
 	c.shown = make([]uint64, n)
 	c.mask = make([]bool, n)
+	c.visible = nil
 	c.shownValid = false
 	c.Discard()
 }
+
+// SetVisible limits drawing and damage to the cells set in mask, row by
+// row as VisibleCells returns them; nil means every cell. Hidden cells are
+// left alone and are redrawn and damaged when they show again. A mask
+// for another size is ignored.
+func (c *Canvas) SetVisible(mask []bool) {
+	if len(mask) != len(c.cells) {
+		mask = nil
+	}
+	c.visible = mask
+}
+
+func (c *Canvas) shows(i int) bool { return c.visible == nil || c.visible[i] }
 
 // Size returns the frame size set by SetSize.
 func (c *Canvas) Size() (w, h int) { return c.w, c.h }
@@ -186,7 +214,7 @@ func (c *Canvas) Changed() bool {
 		return true
 	}
 	for i, h := range c.cells {
-		if h != c.shown[i] {
+		if h != c.shown[i] && c.shows(i) {
 			return true
 		}
 	}
@@ -219,7 +247,7 @@ func (c *Canvas) Render(b *Buffer) []Rect {
 
 	any := false
 	for i, h := range c.cells {
-		dirty := c.full || !b.valid || b.cells[i] != h
+		dirty := c.full || c.shows(i) && (!b.valid || b.cells[i] != h)
 		c.mask[i] = dirty
 		any = any || dirty
 	}
@@ -240,6 +268,13 @@ func (c *Canvas) Render(b *Buffer) []Rect {
 	c.collectDamage()
 	copy(c.shown, c.cells)
 	c.shownValid = true
+	if c.visible != nil && !c.full {
+		for i, show := range c.visible {
+			if !show {
+				b.cells[i], c.shown[i] = staleCell, staleCell
+			}
+		}
+	}
 	c.Discard()
 	return c.damage
 }
@@ -401,7 +436,7 @@ func (c *Canvas) collectRuns(span bool) int {
 	c.open = c.open[:0]
 	changed := func(cy, cx int) bool {
 		i := cy*c.cols + cx
-		return c.cells[i] != c.shown[i]
+		return c.cells[i] != c.shown[i] && c.shows(i)
 	}
 	for cy := 0; cy < c.rows; cy++ {
 		y := cy << CellShift
@@ -440,6 +475,46 @@ func (c *Canvas) collectRuns(span bool) int {
 		c.open = c.open[:n]
 	}
 	return len(c.damage)
+}
+
+// VisibleCells works out which cells of a w×h surface show on screen, by
+// comparing a copy of the screen with the two buffers the surface shows
+// in turn: wherever the screen holds what one of them holds, the surface
+// is not covered. Only a grid of sample points is compared (SampleStep). screen is XRGB8888 with stride pixels per row, upside
+// down if flip, with red and blue swapped if swap. It returns one entry
+// per cell, row by row (see SetVisible), and how many are set.
+func VisibleCells(screen []uint32, stride int, flip, swap bool, a, b []uint32, w, h int) (mask []bool, n int) {
+	cols := (w + cellSize - 1) >> CellShift
+	rows := (h + cellSize - 1) >> CellShift
+	counts := make([]int, cols*rows)
+	const rgb = 0xffffff
+	// Points sit in the middle of each SampleStep square.
+	for y := SampleStep / 2; y < h; y += SampleStep {
+		sy := y
+		if flip {
+			sy = h - 1 - y
+		}
+		srow := screen[sy*stride : sy*stride+w]
+		arow, brow := a[y*w:(y+1)*w], b[y*w:(y+1)*w]
+		cells := counts[(y>>CellShift)*cols:]
+		for x := SampleStep / 2; x < w; x += SampleStep {
+			p := srow[x] & rgb
+			if swap {
+				p = p&0xff<<16 | p&0xff00 | p>>16
+			}
+			if p == arow[x]&rgb || p == brow[x]&rgb {
+				cells[x>>CellShift]++
+			}
+		}
+	}
+	mask = make([]bool, len(counts))
+	for i, k := range counts {
+		if k >= MinVisibleSamples {
+			mask[i] = true
+			n++
+		}
+	}
+	return mask, n
 }
 
 // mix is the splitmix64 finaliser: a cheap, well-spread 64-bit hash step.

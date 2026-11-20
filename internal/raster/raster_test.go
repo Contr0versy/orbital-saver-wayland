@@ -80,6 +80,96 @@ func TestUnchangedFrameHasNoDamage(t *testing.T) {
 	}
 }
 
+func TestHiddenCellsWaitAndCatchUp(t *testing.T) {
+	c, b := newTest(64, 64, 1, false) // 2x2 cells
+	draw := func(y int) {
+		c.Line(0, 0, y, 63, y) // across both cells of a row
+	}
+	draw(5)
+	c.Render(b)
+	// Only the right half shows; the line moves within the top row.
+	c.SetVisible([]bool{false, true, false, true})
+	draw(6)
+	if !c.Changed() {
+		t.Fatal("a change in a visible cell went unnoticed")
+	}
+	d := c.Render(b)
+	if len(d) != 1 || d[0] != (Rect{X: 32, Y: 0, W: 32, H: 32}) {
+		t.Errorf("damage = %v, want only the visible top-right cell", d)
+	}
+	on := Pack(white)
+	if b.Pix[5*64+10] != on || b.Pix[6*64+10] == on {
+		t.Error("the hidden cell was redrawn")
+	}
+	if b.Pix[6*64+40] != on || b.Pix[5*64+40] == on {
+		t.Error("the visible cell was not redrawn")
+	}
+	// Nothing visible moves: no commit needed.
+	draw(6)
+	if c.Changed() {
+		t.Error("an unchanged frame counts as changed")
+	}
+	c.Render(b)
+	// Everything shows again: the stale cells catch up, the rest stay.
+	c.SetVisible(nil)
+	draw(6)
+	if !c.Changed() {
+		t.Fatal("revealed stale cells went unnoticed")
+	}
+	d = c.Render(b)
+	if len(d) != 1 || d[0] != (Rect{X: 0, Y: 0, W: 32, H: 64}) {
+		t.Errorf("damage = %v, want the left column of cells", d)
+	}
+	if b.Pix[6*64+10] != on || b.Pix[5*64+10] == on {
+		t.Error("the revealed cell still shows the old frame")
+	}
+}
+
+func TestVisibleCells(t *testing.T) {
+	const w, h = 64, 64 // 2x2 cells
+	a := make([]uint32, w*h)
+	b := make([]uint32, w*h)
+	for i := range a {
+		a[i] = 0xff102030
+		b[i] = 0xff405060
+	}
+	// The screen shows a in the top-left cell, b in the bottom-right, and
+	// a window everywhere else, except a sliver of a too thin to count.
+	screen := func(flip, swap bool) []uint32 {
+		const stride = w + 8
+		s := make([]uint32, stride*h)
+		for y := 0; y < h; y++ {
+			for x := 0; x < w; x++ {
+				p := uint32(0x00777777)
+				switch {
+				case x < 32 && y < 32:
+					p = a[y*w+x]
+				case x >= 32 && y >= 32:
+					p = b[y*w+x]
+				case x >= 32 && y < 32 && x < 36 && y < SampleStep: // one sample point
+					p = a[y*w+x]
+				}
+				if swap {
+					p = p&0xff<<16 | p&0xff00 | p>>16&0xff
+				}
+				sy := y
+				if flip {
+					sy = h - 1 - y
+				}
+				s[sy*stride+x] = p
+			}
+		}
+		return s
+	}
+	for _, c := range []struct{ flip, swap bool }{{false, false}, {true, false}, {false, true}, {true, true}} {
+		mask, n := VisibleCells(screen(c.flip, c.swap), w+8, c.flip, c.swap, a, b, w, h)
+		want := []bool{true, false, false, true}
+		if n != 2 || len(mask) != 4 || mask[0] != want[0] || mask[1] != want[1] || mask[2] != want[2] || mask[3] != want[3] {
+			t.Errorf("flip=%v swap=%v: mask %v (%d set), want %v", c.flip, c.swap, mask, n, want)
+		}
+	}
+}
+
 func TestDamageMerging(t *testing.T) {
 	c, b := newTest(256, 256, 1, false)
 	c.Render(b)
@@ -221,5 +311,20 @@ func benchRender(b *testing.B, full bool) {
 		s.Advance(1.0 / 20)
 		s.Draw(c, w, h)
 		c.Render(buf)
+	}
+}
+
+func BenchmarkVisibleCells(b *testing.B) {
+	const w, h = 2880, 1920
+	screen := make([]uint32, w*h)
+	front := make([]uint32, w*h)
+	back := make([]uint32, w*h)
+	for i := range screen {
+		screen[i] = uint32(i) & 0xffffff
+		front[i] = 0xff000000 | uint32(i)&0xffffff
+	}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		VisibleCells(screen, w, false, false, front, back, w, h)
 	}
 }

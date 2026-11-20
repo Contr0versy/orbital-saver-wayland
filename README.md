@@ -106,11 +106,16 @@ the CPU. It works to keep the battery cost down:
   picture below `--freeze-below` percent charge (default 20). Rates are
   rounded to divide the display's refresh rate, and frames are timed to the
   display's refresh so each one stays on screen equally long.
-- Under niri it follows the window layout over niri's IPC socket and
-  freezes while windows leave less than `--covered-below` percent of the
-  wallpaper showing (default 10): a maximized window leaves only the gaps.
-  It animates on an empty workspace and in the overview. Windows are assumed
-  to be opaque.
+- Under niri it animates only what shows between windows, and freezes
+  when nothing does. Niri does not say where tiled windows are, so after
+  every layout change, once niri's animations have settled, it takes one
+  capture of the screen and compares it with what it drew: 32×32 cells
+  that match are showing, the rest are skipped. Until then, and in the
+  overview, everything animates, so a window moving away never reveals a
+  stale picture. While part is covered it checks again every 5 seconds,
+  for panels and notifications niri does not report. The capture is
+  compared in memory and dropped. See-through windows and panels count as
+  covering. `--skip-covered=false` turns this off.
 - `SIGUSR1` freezes the picture, `SIGUSR2` resumes it.
 - `--scale 1` on a HiDPI screen draws a quarter of the pixels, a little
   softer.
@@ -144,7 +149,7 @@ lock screen.
 | `--output NAME` | | Wayland: output to cover, e.g. `eDP-1` |
 | `--scale N` | `0` | Wayland: buffer scale; `0` follows the output |
 | `--battery-fps N` | `60` | Wayland: frame rate on battery; `0` freezes |
-| `--covered-below P` | `10` | niri: freeze while windows leave less than P% of the wallpaper showing; `0` never |
+| `--skip-covered` | `true` | niri: animate only what shows between windows (found with a screen capture), freeze when nothing does |
 | `--freeze-below P` | `20` | Wayland: freeze on battery below P% charge |
 | `--full-redraw` | | Wayland: redraw everything every frame, for comparisons |
 | `--damage-rects N` | `256` | Wayland: damage rects per frame before merging |

@@ -1,9 +1,6 @@
-// Package niri follows niri's window layout through its IPC event stream,
-// so a wallpaper can tell how much of itself is showing between windows.
-//
-// Wayland does not tell a client which of its pixels are covered. niri's
-// IPC socket ($NIRI_SOCKET) does say which workspace is active on each
-// output and how big every window's tile is, which is enough to estimate it.
+// Package niri follows niri's window layout through its IPC event stream
+// ($NIRI_SOCKET), so a wallpaper knows when windows may have moved over or
+// off it, and when the overview is open.
 package niri
 
 import (
@@ -24,7 +21,7 @@ type Workspace struct {
 
 // Layout is where a window sits. Tiled windows have a column and row in
 // the scrolling layout but no position on screen; floating windows have a
-// position.
+// position. Only changes to it matter here.
 type Layout struct {
 	Column   *[2]int     `json:"pos_in_scrolling_layout"` // column, row; 1-based
 	TileSize [2]float64  `json:"tile_size"`               // logical pixels
@@ -46,92 +43,6 @@ type State struct {
 	Windows    map[uint64]Window
 }
 
-// Visible estimates the fraction of a w×h (logical pixels) wallpaper on
-// output that is not covered by windows: 1 with the overview open or on an
-// empty workspace, near 0 under a fullscreen or maximized window.
-//
-// Tiled windows have no reported position, so columns are assumed to be
-// on screen side by side; when they are wider than the screen together
-// they are assumed to fill it. Windows are taken to be opaque.
-func (s *State) Visible(output string, w, h float64) float64 {
-	if s.Overview || w <= 0 || h <= 0 {
-		return 1
-	}
-	var active uint64
-	found := false
-	for _, ws := range s.Workspaces {
-		if ws.IsActive && (ws.Output == output || output == "") {
-			active, found = ws.ID, true
-			break
-		}
-	}
-	if !found {
-		return 1
-	}
-	type column struct{ w, h float64 }
-	columns := map[int]*column{}
-	covered := 0.0
-	for _, win := range s.Windows {
-		if win.WorkspaceID == nil || *win.WorkspaceID != active {
-			continue
-		}
-		tw, th := win.Layout.TileSize[0], win.Layout.TileSize[1]
-		if win.IsFloating || win.Layout.Column == nil {
-			if p := win.Layout.TilePos; p != nil {
-				tw = clampSpan(p[0], tw, w)
-				th = clampSpan(p[1], th, h)
-			}
-			covered += tw * th
-			continue
-		}
-		c := columns[win.Layout.Column[0]]
-		if c == nil {
-			c = &column{}
-			columns[win.Layout.Column[0]] = c
-		}
-		if tw > c.w {
-			c.w = tw
-		}
-		c.h += th // stacked windows; tabbed ones overlap and are capped below
-	}
-	totalW, tiled := 0.0, 0.0
-	for _, c := range columns {
-		totalW += c.w
-		tiled += c.w * minF(c.h, h)
-	}
-	if totalW > w {
-		tiled *= w / totalW
-	}
-	covered += tiled
-	v := 1 - covered/(w*h)
-	if v < 0 {
-		return 0
-	}
-	return v
-}
-
-// clampSpan is the length of [pos, pos+size) that lies within [0, limit).
-func clampSpan(pos, size, limit float64) float64 {
-	lo, hi := pos, pos+size
-	if lo < 0 {
-		lo = 0
-	}
-	if hi > limit {
-		hi = limit
-	}
-	if hi < lo {
-		return 0
-	}
-	return hi - lo
-}
-
-func minF(a, b float64) float64 {
-	if a < b {
-		return a
-	}
-	return b
-}
-
 func (s *State) clone() State {
 	c := State{
 		Overview:   s.Overview,
@@ -148,8 +59,9 @@ func (s *State) clone() State {
 }
 
 // apply updates the state from one event and reports whether anything we
-// care about changed. Title and focus changes, which come often, do not
-// count.
+// care about changed. Title changes, which come often, do not count. Focus
+// changes do: moving focus to another column scrolls the view, and niri
+// reports nothing else when it does.
 func (s *State) apply(line []byte) (changed bool, err error) {
 	var ev struct {
 		WorkspacesChanged *struct {
@@ -173,6 +85,8 @@ func (s *State) apply(line []byte) (changed bool, err error) {
 		OverviewOpenedOrClosed *struct {
 			IsOpen bool `json:"is_open"`
 		}
+		WindowFocusChanged           *json.RawMessage
+		WorkspaceActiveWindowChanged *json.RawMessage
 	}
 	if err := json.Unmarshal(line, &ev); err != nil {
 		return false, err
@@ -230,6 +144,8 @@ func (s *State) apply(line []byte) (changed bool, err error) {
 		changed = s.Overview != ev.OverviewOpenedOrClosed.IsOpen
 		s.Overview = ev.OverviewOpenedOrClosed.IsOpen
 		return changed, nil
+	case ev.WindowFocusChanged != nil, ev.WorkspaceActiveWindowChanged != nil:
+		return true, nil
 	}
 	return false, nil
 }

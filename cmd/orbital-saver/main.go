@@ -43,8 +43,10 @@ Wayland target (needs a compositor with wlr-layer-shell, e.g. niri or sway):
                      1 on a HiDPI screen draws a quarter of the pixels
   --battery-fps N    frame rate on battery; 0 freezes the picture (default 60)
   --freeze-below P   on battery, freeze below P percent charge; 0 never (default 20)
-  --covered-below P  on niri, freeze while windows leave less than P percent
-                     of the wallpaper showing; 0 never (default 10)
+  --skip-covered     on niri, animate only what shows between windows, found
+                     by comparing a screen capture with what was drawn after
+                     each layout change; freeze when nothing shows (default
+                     true; --skip-covered=false animates everything)
   --full-redraw      redraw the whole frame every time (for power comparisons)
   --damage-rects N   most damage rects per frame before they are merged (default 256)
   --dmabuf=false     send frames in shared memory instead of GPU buffers
@@ -77,27 +79,27 @@ func main() {
 
 func run() error {
 	var (
-		preview      = flag.Bool("preview", false, "")
-		root         = flag.Bool("root", false, "")
-		windowID     = flag.String("window-id", "", "")
-		background   = flag.Bool("background", false, "")
-		screensaver  = flag.Bool("screensaver", false, "")
-		outputName   = flag.String("output", "", "")
-		scale        = flag.Int("scale", 0, "")
-		batteryFPS   = flag.Int("battery-fps", 60, "")
-		freezeBelow  = flag.Int("freeze-below", 20, "")
-		coveredBelow = flag.Int("covered-below", 10, "")
-		fullRedraw   = flag.Bool("full-redraw", false, "")
-		damageRects  = flag.Int("damage-rects", 256, "")
-		dmabuf       = flag.Bool("dmabuf", true, "")
-		stats        = flag.Bool("stats", false, "")
-		paletteName  = flag.String("palette", "amber", "")
-		fps          = flag.Int("fps", 0, "")
-		speed        = flag.Float64("speed", 1, "")
-		stars        = flag.Int("stars", 1500, "")
-		lineWidth    = flag.Int("line-width", 0, "")
-		seed         = flag.Int64("seed", 0, "")
-		showVersion  = flag.Bool("version", false, "")
+		preview     = flag.Bool("preview", false, "")
+		root        = flag.Bool("root", false, "")
+		windowID    = flag.String("window-id", "", "")
+		background  = flag.Bool("background", false, "")
+		screensaver = flag.Bool("screensaver", false, "")
+		outputName  = flag.String("output", "", "")
+		scale       = flag.Int("scale", 0, "")
+		batteryFPS  = flag.Int("battery-fps", 60, "")
+		freezeBelow = flag.Int("freeze-below", 20, "")
+		skipCovered = flag.Bool("skip-covered", true, "")
+		fullRedraw  = flag.Bool("full-redraw", false, "")
+		damageRects = flag.Int("damage-rects", 256, "")
+		dmabuf      = flag.Bool("dmabuf", true, "")
+		stats       = flag.Bool("stats", false, "")
+		paletteName = flag.String("palette", "amber", "")
+		fps         = flag.Int("fps", 0, "")
+		speed       = flag.Float64("speed", 1, "")
+		stars       = flag.Int("stars", 1500, "")
+		lineWidth   = flag.Int("line-width", 0, "")
+		seed        = flag.Int64("seed", 0, "")
+		showVersion = flag.Bool("version", false, "")
 	)
 	flag.Usage = func() {
 		fmt.Fprintf(flag.CommandLine.Output(), usageText,
@@ -136,9 +138,6 @@ func run() error {
 	if *freezeBelow < 0 || *freezeBelow > 100 {
 		return fmt.Errorf("--freeze-below must be between 0 and 100, got %d", *freezeBelow)
 	}
-	if *coveredBelow < 0 || *coveredBelow > 100 {
-		return fmt.Errorf("--covered-below must be between 0 and 100, got %d", *coveredBelow)
-	}
 	if *scale < 0 || *scale > 4 {
 		return fmt.Errorf("--scale must be between 0 and 4, got %d", *scale)
 	}
@@ -165,20 +164,20 @@ func run() error {
 	if onWayland {
 		runtime.GOMAXPROCS(1)
 		return runWayland(waylandOptions{
-			screensaver:  *screensaver,
-			output:       *outputName,
-			scale:        *scale,
-			fps:          *fps,
-			batteryFPS:   *batteryFPS,
-			freezeBelow:  *freezeBelow,
-			coveredBelow: *coveredBelow,
-			fullRedraw:   *fullRedraw,
-			damageRects:  *damageRects,
-			dmabuf:       *dmabuf,
-			stats:        *stats,
-			speed:        *speed,
-			lineWidth:    *lineWidth,
-			palette:      palette,
+			screensaver: *screensaver,
+			output:      *outputName,
+			scale:       *scale,
+			fps:         *fps,
+			batteryFPS:  *batteryFPS,
+			freezeBelow: *freezeBelow,
+			skipCovered: *skipCovered,
+			fullRedraw:  *fullRedraw,
+			damageRects: *damageRects,
+			dmabuf:      *dmabuf,
+			stats:       *stats,
+			speed:       *speed,
+			lineWidth:   *lineWidth,
+			palette:     palette,
 		}, scene.New(*seed, *stars))
 	}
 

@@ -6,7 +6,8 @@
 //
 // Only the handful of interfaces the program needs are implemented:
 // wl_compositor, wl_shm, wl_output, wl_seat (screensaver mode),
-// zwlr_layer_shell_v1 and, with Config.DMABuf, zwp_linux_dmabuf_v1.
+// zwlr_layer_shell_v1, zwp_linux_dmabuf_v1 (with Config.DMABuf) and
+// zwlr_screencopy_manager_v1 (wallpaper mode, see capture.go).
 package wayland
 
 import (
@@ -47,10 +48,11 @@ type Config struct {
 
 // Pending is what happened since the last call to Surface.Pending.
 type Pending struct {
-	Frame     bool  // the compositor wants the next frame
-	Configure bool  // size or scale changed: draw again even if paused
-	Quit      bool  // the surface is gone or the user dismissed it
-	Err       error // set with Quit when something went wrong
+	Frame      bool  // the compositor wants the next frame
+	Configure  bool  // size or scale changed: draw again even if paused
+	Visibility bool  // a capture found which cells show; see Visible
+	Quit       bool  // the surface is gone or the user dismissed it
+	Err        error // set with Quit when something went wrong
 }
 
 // Protocol versions we speak. We bind the lower of these and what the
@@ -94,6 +96,7 @@ type Surface struct {
 
 	registry, compositor, shm, layerShell, seat, dmabuf uint32
 	compositorVer                                       uint32
+	screencopy, screencopyVer                           uint32
 	outputs                                             []*output
 	target                                              *output // the output we asked for, or nil
 	entered                                             *output // the output the surface is on
@@ -127,6 +130,13 @@ type Surface struct {
 	logicalH       int
 	preferredScale int
 	scale          int
+
+	shown        bool     // a frame has been committed
+	capt         *capture // screencopy in flight
+	captureAgain bool     // take another capture when capt ends
+	layoutGen    int      // bumped by ShowAll; older captures are stale
+	visible      []bool   // cells that showed at the last capture; nil: all
+	visibleN     int      // how many of them
 
 	pending Pending
 	notify  chan struct{}
@@ -361,17 +371,6 @@ func (s *Surface) Buffers() string {
 	return "shared memory"
 }
 
-// Output returns the name of the output the surface is on ("" if not
-// known yet) and the surface's size in logical pixels.
-func (s *Surface) Output() (name string, w, h int) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if o := s.output(); o != nil {
-		name = o.outputName
-	}
-	return name, s.logicalW, s.logicalH
-}
-
 // output is the output that decides our scale and refresh rate.
 func (s *Surface) output() *output {
 	switch {
@@ -437,6 +436,9 @@ func (s *Surface) Begin() (w, h int, ok bool) {
 	}
 	w, h = s.logicalW*s.scale, s.logicalH*s.scale
 	if cw, ch := s.canvas.Size(); cw != w || ch != h {
+		// What showed where is unknown at the new size.
+		s.layoutGen++
+		s.visible, s.visibleN = nil, 0
 		// The surface is opaque: the compositor need not draw anything
 		// behind it.
 		region := s.c.newID()
@@ -470,6 +472,7 @@ func (s *Surface) Present() (committed bool, err error) {
 		s.canvas.Discard()
 		return false, nil
 	}
+	s.canvas.SetVisible(s.visible)
 	if !s.canvas.Changed() {
 		s.canvas.Discard()
 		return false, s.c.flush() // a configure may still need acking
@@ -512,6 +515,7 @@ func (s *Surface) Present() (committed bool, err error) {
 	}
 	s.c.request(s.surface, 6) // commit
 	b.busy = true
+	s.shown = true
 	return true, s.c.flush()
 }
 
@@ -614,6 +618,9 @@ func (s *Surface) Close() {
 	s.freeBuffers()
 	s.c.flush()
 	s.c.close()
+	if s.capt != nil && s.capt.mem != nil {
+		s.capt.mem.release()
+	}
 }
 
 func maxInt(a, b int) int {
