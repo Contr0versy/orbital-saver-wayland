@@ -101,8 +101,8 @@ the CPU. It works to keep the battery cost down:
 - It waits for the compositor's frame callback before drawing the next
   frame, so while the wallpaper is hidden (lock screen, display off) it does
   nothing at all.
-- Frame rate follows the power supply, without polling: `--fps` (default 60)
-  on AC, `--battery-fps` (default 30, `0` freezes) on battery, and a frozen
+- Frame rate follows the power supply, without polling: `--fps` (default 120)
+  on AC, `--battery-fps` (default 60, `0` freezes) on battery, and a frozen
   picture below `--freeze-below` percent charge (default 20). Rates are
   rounded to divide the display's refresh rate, and frames are timed to the
   display's refresh so each one stays on screen equally long.
@@ -134,7 +134,7 @@ lock screen.
 | `--root` | | Draw on the root window, or the one in `$XSCREENSAVER_WINDOW` |
 | `--window-id ID` | | Draw on an existing window (hex or decimal id) |
 | `--palette NAME` | `amber` | `amber`, `cyber`, `mono`, `green` |
-| `--fps N` | `60` | Target frame rate |
+| `--fps N` | `60` | Target frame rate; on Wayland the rate on AC, default `120` |
 | `--speed X` | `1` | Time multiplier; `0` freezes, negative runs backwards |
 | `--stars N` | `1500` | Background stars |
 | `--line-width N` | `0` | Pixels; `0` picks 1, or 2 on 4K screens |
@@ -143,7 +143,7 @@ lock screen.
 | `--screensaver` | | Wayland: fullscreen on the overlay layer, quits on input |
 | `--output NAME` | | Wayland: output to cover, e.g. `eDP-1` |
 | `--scale N` | `0` | Wayland: buffer scale; `0` follows the output |
-| `--battery-fps N` | `30` | Wayland: frame rate on battery; `0` freezes |
+| `--battery-fps N` | `60` | Wayland: frame rate on battery; `0` freezes |
 | `--covered-below P` | `10` | niri: freeze while windows leave less than P% of the wallpaper showing; `0` never |
 | `--freeze-below P` | `20` | Wayland: freeze on battery below P% charge |
 | `--full-redraw` | | Wayland: redraw everything every frame, for comparisons |

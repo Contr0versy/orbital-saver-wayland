@@ -88,8 +88,8 @@ func runWayland(o waylandOptions, system *scene.Scene) error {
 		redraw  = true
 		fps     int
 		due     time.Time // the next frame slot; slots are 1/fps apart
-		last    = time.Now()
-		start   = last
+		last    time.Time // the slot the scene was last advanced to
+		start   = time.Now()
 		drawn   int // frames rendered
 		commits int // frames sent to the compositor
 		frames  int // frame callbacks received
@@ -148,12 +148,27 @@ func runWayland(o waylandOptions, system *scene.Scene) error {
 			return nil
 		}
 		now := time.Now()
-		// Cap the step so a stall (suspend, a hidden surface, a freeze)
-		// does not make the planets jump.
-		dt := math.Min(now.Sub(last).Seconds(), 0.1)
-		last = now
-		if fps > 0 {
-			system.Advance(dt * o.speed)
+		// A redraw for a configure between slots shows the same moment
+		// again and leaves the timetable alone.
+		onSlot := fps > 0 && (due.IsZero() || !now.Before(due.Add(-time.Millisecond)))
+		if onSlot {
+			// Advance to the slot, not to now: the timer wakes a little
+			// late by varying amounts, and moving the planets by those
+			// uneven steps reads as judder. Slots are evenly spaced.
+			interval := time.Second / time.Duration(fps)
+			at := slotAt(due, now, interval)
+			step := at.Sub(last)
+			if due.IsZero() {
+				// A new timetable (start, resume, a rate change): take
+				// one ordinary step rather than the time since the last.
+				step = interval
+			}
+			// Cap the step so a stall (suspend, a hidden surface) does
+			// not make the planets jump.
+			if dt := math.Min(step.Seconds(), 0.1); dt > 0 {
+				system.Advance(dt * o.speed)
+			}
+			last = at
 		}
 		system.Draw(surface, w, h)
 		committed, err := surface.Present()
@@ -166,8 +181,7 @@ func runWayland(o waylandOptions, system *scene.Scene) error {
 			commits++
 		}
 		waiting = waiting || committed
-		// A redraw for a configure between slots leaves the timetable alone.
-		if fps > 0 && (due.IsZero() || !now.Before(due.Add(-time.Millisecond))) {
+		if onSlot {
 			due = nextSlot(due, now, time.Second/time.Duration(fps))
 		}
 		return nil
@@ -241,6 +255,19 @@ func nextSlot(due, now time.Time, interval time.Duration) time.Time {
 		due = due.Add((now.Sub(due)/interval + 1) * interval)
 	}
 	return due
+}
+
+// slotAt returns the slot a frame drawn at now belongs to: the latest one
+// on due's timetable that is not after now, or due itself when now is a
+// hair early. Before there is a timetable it is now.
+func slotAt(due, now time.Time, interval time.Duration) time.Time {
+	switch {
+	case due.IsZero():
+		return now
+	case !now.After(due):
+		return due
+	}
+	return due.Add(now.Sub(due) / interval * interval)
 }
 
 // targetFPS applies the power policy: full rate on AC, a lower one on

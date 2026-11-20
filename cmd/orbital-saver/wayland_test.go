@@ -44,6 +44,29 @@ func TestTargetFPS(t *testing.T) {
 	}
 }
 
+func TestSlotAtEvenSteps(t *testing.T) {
+	interval := time.Second / 60
+	due := time.Unix(1000, 0)
+	for _, c := range []struct {
+		now  time.Duration // after due
+		want time.Duration
+	}{
+		{-time.Millisecond, 0}, // the timer fired a hair early
+		{0, 0},
+		{3 * time.Millisecond, 0}, // late wake-ups land on the slot
+		{interval + 5*time.Millisecond, interval},
+		{5*interval + interval/2, 5 * interval}, // missed slots are skipped
+	} {
+		if got := slotAt(due, due.Add(c.now), interval).Sub(due); got != c.want {
+			t.Errorf("slotAt(due, due%+v) = due%+v, want due%+v", c.now, got, c.want)
+		}
+	}
+	now := time.Unix(2000, 0)
+	if got := slotAt(time.Time{}, now, interval); !got.Equal(now) {
+		t.Errorf("slotAt with no timetable = %v, want now", got)
+	}
+}
+
 func TestNextSlotKeepsTheTimetable(t *testing.T) {
 	interval := time.Second / 30
 	base := time.Unix(1000, 0)

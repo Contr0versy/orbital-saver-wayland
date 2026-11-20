@@ -41,7 +41,7 @@ Wayland target (needs a compositor with wlr-layer-shell, e.g. niri or sway):
                      run one process per output for several screens
   --scale N          buffer scale, 1-4; 0 follows the output (default 0).
                      1 on a HiDPI screen draws a quarter of the pixels
-  --battery-fps N    frame rate on battery; 0 freezes the picture (default 30)
+  --battery-fps N    frame rate on battery; 0 freezes the picture (default 60)
   --freeze-below P   on battery, freeze below P percent charge; 0 never (default 20)
   --covered-below P  on niri, freeze while windows leave less than P percent
                      of the wallpaper showing; 0 never (default 10)
@@ -57,7 +57,7 @@ Wayland target (needs a compositor with wlr-layer-shell, e.g. niri or sway):
 Options:
   --palette NAME     colour theme: %s (default amber)
   --fps N            target frame rate, 1-240 (default 60; on Wayland the rate
-                     on AC, rounded to divide the refresh rate)
+                     on AC, default 120, rounded to divide the refresh rate)
   --speed X          time multiplier; 2 is twice as fast, 0 freezes (default 1)
   --stars N          number of background stars (default 1500)
   --line-width N     line thickness in pixels (logical pixels on Wayland);
@@ -84,7 +84,7 @@ func run() error {
 		screensaver  = flag.Bool("screensaver", false, "")
 		outputName   = flag.String("output", "", "")
 		scale        = flag.Int("scale", 0, "")
-		batteryFPS   = flag.Int("battery-fps", 30, "")
+		batteryFPS   = flag.Int("battery-fps", 60, "")
 		freezeBelow  = flag.Int("freeze-below", 20, "")
 		coveredBelow = flag.Int("covered-below", 10, "")
 		fullRedraw   = flag.Bool("full-redraw", false, "")
@@ -92,7 +92,7 @@ func run() error {
 		dmabuf       = flag.Bool("dmabuf", true, "")
 		stats        = flag.Bool("stats", false, "")
 		paletteName  = flag.String("palette", "amber", "")
-		fps          = flag.Int("fps", 60, "")
+		fps          = flag.Int("fps", 0, "")
 		speed        = flag.Float64("speed", 1, "")
 		stars        = flag.Int("stars", 1500, "")
 		lineWidth    = flag.Int("line-width", 0, "")
@@ -118,6 +118,14 @@ func run() error {
 	}
 	if onWayland && (*preview || *root || *windowID != "") {
 		return fmt.Errorf("--background and --screensaver are Wayland targets and cannot be combined with --preview, --root or --window-id")
+	}
+	if *fps == 0 {
+		// On Wayland frames are locked to the display, and this is the
+		// rate on AC; it is rounded down to the refresh rate.
+		*fps = 60
+		if onWayland {
+			*fps = 120
+		}
 	}
 	if *fps < 1 || *fps > 240 {
 		return fmt.Errorf("--fps must be between 1 and 240, got %d", *fps)
