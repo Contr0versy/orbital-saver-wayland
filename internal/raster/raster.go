@@ -269,6 +269,21 @@ func (c *Canvas) Render(b *Buffer) []Rect {
 }
 
 func (c *Canvas) clearMasked(b *Buffer) {
+	c.maskedRuns(func(y, x0, x1 int) {
+		row := b.Pix[y*c.w+x0 : y*c.w+x1]
+		for i := range row {
+			row[i] = c.bg
+		}
+	})
+}
+
+// Written calls fn for every run of pixels the last Render may have
+// written, one pixel row at a time: Pix[y*W+x0 : y*W+x1]. Nothing outside
+// these runs was touched.
+func (c *Canvas) Written(fn func(y, x0, x1 int)) { c.maskedRuns(fn) }
+
+// maskedRuns calls fn for each pixel row of each run of dirty cells.
+func (c *Canvas) maskedRuns(fn func(y, x0, x1 int)) {
 	for cy := 0; cy < c.rows; cy++ {
 		y0 := cy << CellShift
 		y1 := minInt(y0+cellSize, c.h)
@@ -277,17 +292,13 @@ func (c *Canvas) clearMasked(b *Buffer) {
 				cx++
 				continue
 			}
-			// Clear a whole run of dirty cells per pixel row.
 			start := cx
 			for cx < c.cols && c.mask[cy*c.cols+cx] {
 				cx++
 			}
 			x0, x1 := start<<CellShift, minInt(cx<<CellShift, c.w)
 			for y := y0; y < y1; y++ {
-				row := b.Pix[y*c.w+x0 : y*c.w+x1]
-				for i := range row {
-					row[i] = c.bg
-				}
+				fn(y, x0, x1)
 			}
 		}
 	}

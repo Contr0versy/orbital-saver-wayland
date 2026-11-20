@@ -112,6 +112,8 @@ type Surface struct {
 	pool      uint32
 	memory    *sharedMemory
 	gpuMemory *dmabufMemory // instead of pool and memory with Config.DMABuf
+	flushPix  []uint32      // the buffer flushRun writes back
+	flushRun  func(y, x0, x1 int)
 	bufs      [2]buffer
 	bufW      int
 	bufH      int
@@ -506,6 +508,10 @@ func (s *Surface) Present() (committed bool, err error) {
 		}
 		s.gpuMemory.beginCPU(i)
 		damage = s.canvas.Render(b.Buffer)
+		// Write back what the frame changed, in case the display engine
+		// scans this buffer out directly (see flush_amd64.go).
+		s.flushPix = b.Pix
+		s.canvas.Written(s.flushRun)
 		s.gpuMemory.endCPU(i)
 	} else {
 		damage = s.canvas.Render(b.Buffer)
@@ -577,6 +583,7 @@ func (s *Surface) useDMABufs(mem *dmabufMemory, w, h int) error {
 		return err
 	}
 	s.gpuMemory, s.bufW, s.bufH = mem, w, h
+	s.flushRun = func(y, x0, x1 int) { flushCache(s.flushPix[y*w+x0 : y*w+x1]) }
 	return nil
 }
 

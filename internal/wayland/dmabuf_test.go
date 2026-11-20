@@ -22,6 +22,9 @@ func TestDMABufMemory(t *testing.T) {
 	m.beginCPU(1)
 	b := m.pixels(1, w*h)
 	b[0], b[w*h-1] = 0xff00ff, 0x00ff00
+	flushCache(b[:1])
+	flushCache(b[1 : w*h-1]) // a length that is not a whole number of cache lines
+	flushCache(b[:0])
 	m.endCPU(1)
 	if m.pixels(0, w*h)[0] != 0 || m.data[m.size] != 0xff {
 		t.Error("buffer 1 is not where it should be")

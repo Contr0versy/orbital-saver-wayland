@@ -44,8 +44,8 @@ type dmabufMemory struct {
 
 // newDMABufMemory creates n page-aligned dma-bufs of at least size bytes.
 func newDMABufMemory(n, size int) (*dmabufMemory, error) {
-	if sysMemfdCreate == 0 {
-		return nil, errors.New("dma-bufs need memfd_create, which is not wired up on this architecture")
+	if sysMemfdCreate == 0 || !canFlushCache {
+		return nil, errors.New("dma-bufs are only supported on amd64 for now")
 	}
 	dev, err := syscall.Open("/dev/udmabuf", syscall.O_RDWR|syscall.O_CLOEXEC, 0)
 	if err != nil {

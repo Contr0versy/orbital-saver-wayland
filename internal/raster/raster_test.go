@@ -150,6 +150,43 @@ func TestDirtyMatchesFullRedraw(t *testing.T) {
 	}
 }
 
+// Written must name every pixel Render changed: the dma-buf path writes
+// exactly those back from the CPU cache, and a pixel it missed would show
+// stale on a screen that scans the buffer out directly.
+func TestWrittenCoversEveryChange(t *testing.T) {
+	const w, h = 640, 400
+	p, _ := scene.PaletteByName("amber")
+	c := NewCanvas(p.Ramp(), p.Background, false)
+	c.SetSize(w, h, 2)
+	bufs := [2]*Buffer{
+		NewBuffer(make([]uint32, w*h), w, h),
+		NewBuffer(make([]uint32, w*h), w, h),
+	}
+	before := make([]uint32, w*h)
+	written := make([]bool, w*h)
+	s := scene.New(7, 600)
+	for frame := 0; frame < 120; frame++ {
+		s.Advance(1.0 / 20)
+		s.Draw(c, w, h)
+		b := bufs[frame%2]
+		copy(before, b.Pix)
+		c.Render(b)
+		for i := range written {
+			written[i] = false
+		}
+		c.Written(func(y, x0, x1 int) {
+			for x := x0; x < x1; x++ {
+				written[y*w+x] = true
+			}
+		})
+		for i := range before {
+			if b.Pix[i] != before[i] && !written[i] {
+				t.Fatalf("frame %d: pixel (%d,%d) changed outside the written runs", frame, i%w, i/w)
+			}
+		}
+	}
+}
+
 // TestSceneDamage reports how much of a 2880x1920 frame changes at 20 fps
 // with the default scene, which decides whether dirty cells pay off.
 func TestSceneDamage(t *testing.T) {
