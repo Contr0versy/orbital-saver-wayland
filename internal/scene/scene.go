@@ -1,13 +1,13 @@
 // Package scene models the solar system (bodies, Keplerian orbits,
 // starfield, colour palettes) and renders it as shaded 2D lines onto a
-// Canvas. It knows nothing about X11.
+// Canvas. It knows nothing about the display.
 package scene
 
 import (
 	"math"
 	"math/rand"
 
-	"github.com/codetheuri/orbital-saver/internal/math3d"
+	"github.com/Contr0versy/orbital-background/internal/math3d"
 )
 
 // Canvas receives the finished 2D primitives for one frame. shade is an

@@ -1,7 +1,7 @@
 package wayland
 
 import (
-	"github.com/codetheuri/orbital-saver/internal/raster"
+	"github.com/Contr0versy/orbital-background/internal/raster"
 )
 
 // Finding what shows of the wallpaper. Wayland does not tell a client

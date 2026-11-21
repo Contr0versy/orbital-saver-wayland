@@ -4,7 +4,7 @@ import (
 	"math"
 	"testing"
 
-	"github.com/codetheuri/orbital-saver/internal/math3d"
+	"github.com/Contr0versy/orbital-background/internal/math3d"
 )
 
 func TestSolveKepler(t *testing.T) {
@@ -128,7 +128,7 @@ func (nullCanvas) Line(shade, x0, y0, x1, y1 int) {}
 func (nullCanvas) Dot(shade, x, y, size int)      {}
 
 // BenchmarkFrame measures the CPU side of one 1080p frame: simulation,
-// transform, clipping, projection and shading, without any X11 work.
+// transform, clipping, projection and shading, without any drawing.
 func BenchmarkFrame(b *testing.B) {
 	s := New(7, 1000)
 	b.ReportAllocs()

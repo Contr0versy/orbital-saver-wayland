@@ -201,8 +201,7 @@ func waitFor(t *testing.T, s *Surface, want func(Pending) bool) {
 func TestSurfaceAgainstFakeCompositor(t *testing.T) {
 	fake := startFake(t)
 	s, err := Open(Config{
-		Layer:      LayerBackground,
-		Namespace:  "orbital-saver",
+		Namespace:  "orbital-background",
 		Output:     "eDP-1",
 		Background: color.RGBA{A: 255},
 		Ramp:       []color.RGBA{{R: 255, A: 255}},

@@ -347,8 +347,7 @@ func (c *Canvas) fillDot(b *Buffer, d dot, col uint32) {
 	}
 }
 
-// drawLine is Bresenham's algorithm, both endpoints included like X11's
-// PolySegment. Wide lines are drawn as a span across the minor axis at
+// drawLine is Bresenham's algorithm, both endpoints included. Wide lines are drawn as a span across the minor axis at
 // every step.
 func (c *Canvas) drawLine(b *Buffer, s segment, col uint32) {
 	x0, y0, x1, y1 := int(s.x0), int(s.y0), int(s.x1), int(s.y1)

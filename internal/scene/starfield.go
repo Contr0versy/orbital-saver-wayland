@@ -4,7 +4,7 @@ import (
 	"math"
 	"math/rand"
 
-	"github.com/codetheuri/orbital-saver/internal/math3d"
+	"github.com/Contr0versy/orbital-background/internal/math3d"
 )
 
 // Stars live in a thick shell around the system rather than on a flat

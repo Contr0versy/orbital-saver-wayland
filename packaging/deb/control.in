@@ -1,18 +1,16 @@
-Package: orbital-saver
+Package: orbital-background
 Version: @VERSION@
 Architecture: @ARCH@
 Maintainer: @MAINTAINER@
 Installed-Size: @SIZE@
-Section: x11
+Section: graphics
 Priority: optional
-Suggests: xfce4-screensaver | xscreensaver | mate-screensaver
-Homepage: https://github.com/codetheuri/orbital-saver
-Description: retro wireframe solar system screensaver for X11
+Homepage: https://github.com/Contr0versy/orbital-background
+Description: retro wireframe solar system live wallpaper for Wayland
  Polyhedral planets, a ringed world, moons and a comet follow elliptical
  Keplerian orbits around a central star, drawn as depth-faded wireframes
  over a parallax starfield.
  .
- A single static binary with no library dependencies. Works with
- xfce4-screensaver and xscreensaver, or standalone with --preview. On
- Wayland compositors with wlr-layer-shell it also runs as a power-aware
- live wallpaper (--background) or screensaver (--screensaver).
+ A single static binary with no library dependencies. Runs as a
+ power-aware live wallpaper on Wayland compositors with wlr-layer-shell
+ (niri, sway, Hyprland, river).

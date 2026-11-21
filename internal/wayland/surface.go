@@ -1,13 +1,13 @@
-// Package wayland draws the scene on a wlr-layer-shell surface: behind
-// every window as a live wallpaper, or above everything as a screensaver.
+// Package wayland draws the scene on a wlr-layer-shell surface behind every
+// window, as a live wallpaper.
 // It speaks the Wayland wire protocol directly, in pure Go, and rasterises
 // on the CPU into dma-bufs the GPU reads in place (see dmabuf.go), or into
 // shared-memory buffers where dma-bufs are not available.
 //
 // Only the handful of interfaces the program needs are implemented:
-// wl_compositor, wl_shm, wl_output, wl_seat (screensaver mode),
-// zwlr_layer_shell_v1, zwp_linux_dmabuf_v1 (with Config.DMABuf) and
-// zwlr_screencopy_manager_v1 (wallpaper mode, see capture.go).
+// wl_compositor, wl_shm, wl_output, zwlr_layer_shell_v1,
+// zwp_linux_dmabuf_v1 (with Config.DMABuf) and zwlr_screencopy_manager_v1
+// (see capture.go).
 package wayland
 
 import (
@@ -19,20 +19,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/codetheuri/orbital-saver/internal/raster"
-)
-
-// Layer is the layer-shell layer the surface lives on.
-type Layer uint32
-
-const (
-	LayerBackground Layer = 0 // under every window: a live wallpaper
-	LayerOverlay    Layer = 3 // over everything: a screensaver
+	"github.com/Contr0versy/orbital-background/internal/raster"
 )
 
 // Config describes the surface to open.
 type Config struct {
-	Layer     Layer
 	Namespace string // layer-shell namespace, for compositor layer rules
 	Output    string // output name such as "eDP-1"; "" lets the compositor pick
 	Scale     int    // buffer scale; 0 follows the output
@@ -51,7 +42,7 @@ type Pending struct {
 	Frame      bool  // the compositor wants the next frame
 	Configure  bool  // size or scale changed: draw again even if paused
 	Visibility bool  // a capture found which cells show; see Visible
-	Quit       bool  // the surface is gone or the user dismissed it
+	Quit       bool  // the surface is gone
 	Err        error // set with Quit when something went wrong
 }
 
@@ -61,7 +52,6 @@ const (
 	compositorVersion = 6 // 4 for damage_buffer, 6 for preferred_buffer_scale
 	shmVersion        = 1
 	outputVersion     = 4 // names
-	seatVersion       = 5
 	layerShellVersion = 4
 	dmabufVersion     = 3 // the last version that lists modifiers as events
 )
@@ -94,16 +84,14 @@ type Surface struct {
 	mu sync.Mutex // everything below, and all writes to conn
 	c  *conn
 
-	registry, compositor, shm, layerShell, seat, dmabuf uint32
-	compositorVer                                       uint32
-	screencopy, screencopyVer                           uint32
-	outputs                                             []*output
-	target                                              *output // the output we asked for, or nil
-	entered                                             *output // the output the surface is on
+	registry, compositor, shm, layerShell, dmabuf uint32
+	compositorVer                                 uint32
+	screencopy, screencopyVer                     uint32
+	outputs                                       []*output
+	target                                        *output // the output we asked for, or nil
+	entered                                       *output // the output the surface is on
 
 	surface, layerSurface uint32
-	keyboard, pointer     uint32
-	pointerX, pointerY    int32 // where the pointer entered, 24.8 fixed point
 
 	syncCB       uint32
 	syncFinished bool
@@ -222,7 +210,7 @@ func (s *Surface) init() error {
 	} else {
 		s.c.putUint(0)
 	}
-	s.c.putUint(uint32(s.cfg.Layer))
+	s.c.putUint(0) // layer: background, under every window
 	s.c.putString(s.cfg.Namespace)
 	s.c.end(start)
 
@@ -230,16 +218,13 @@ func (s *Surface) init() error {
 	s.c.request(s.layerSurface, 1, 1|2|4|8)         // set_anchor: all four edges
 	s.c.request(s.layerSurface, 2, uint32(1<<32-1)) // set_exclusive_zone -1: ignore panels, cover the whole output
 
-	if s.cfg.Layer == LayerOverlay {
-		s.c.request(s.layerSurface, 4, 1) // keyboard_interactivity: exclusive
-	} else {
-		// A wallpaper takes no input: an empty input region lets clicks
-		// through to whatever is behind it (the compositor's backdrop).
-		region := s.c.newID()
-		s.c.request(s.compositor, 1, region) // create_region
-		s.c.request(s.surface, 5, region)    // set_input_region
-		s.c.request(region, 0)               // destroy
-	}
+	// A wallpaper takes no input: an empty input region lets clicks
+	// through to whatever is behind it (the compositor's backdrop).
+	region := s.c.newID()
+	s.c.request(s.compositor, 1, region) // create_region
+	s.c.request(s.surface, 5, region)    // set_input_region
+	s.c.request(region, 0)               // destroy
+
 	s.c.request(s.surface, 6) // commit: no buffer yet, asks for a configure
 	return s.c.flush()
 }

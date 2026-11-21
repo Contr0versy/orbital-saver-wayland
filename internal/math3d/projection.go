@@ -40,7 +40,7 @@ func (vp *Viewport) Project(v Vec3) (x, y float64) {
 
 // Segment turns a view-space line into a drawable pixel line. It clips
 // against the near plane in 3D, projects, then clips against the window
-// rectangle, so the result always fits comfortably in X11's 16-bit
+// rectangle, so the result always fits comfortably in 16-bit
 // coordinates. ok is false when nothing of the line is visible.
 func (vp *Viewport) Segment(a, b Vec3) (x0, y0, x1, y1 int, ok bool) {
 	if a.Z < vp.Near && b.Z < vp.Near {

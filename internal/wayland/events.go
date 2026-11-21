@@ -2,10 +2,6 @@ package wayland
 
 import "fmt"
 
-// How far the pointer may drift before a screensaver quits, in logical
-// pixels. A little slack absorbs a bumped desk.
-const pointerSlack = 10
-
 // dispatch handles one event. Called with s.mu held (or before the event
 // goroutine starts). Events for objects we do not track are ignored.
 func (s *Surface) dispatch(m *message) {
@@ -36,12 +32,6 @@ func (s *Surface) dispatch(m *message) {
 		if m.opcode == 1 && m.uint(0) == drmFormatXRGB8888 && m.uint(1) == 0 && m.uint(2) == drmModLinear {
 			s.dmabufLinear = true
 		}
-	case id == s.seat && id != 0:
-		s.seatEvent(m)
-	case id == s.keyboard && id != 0:
-		s.keyboardEvent(m)
-	case id == s.pointer && id != 0:
-		s.pointerEvent(m)
 	default:
 		for _, o := range s.outputs {
 			if o.id == id {
@@ -89,16 +79,8 @@ func (s *Surface) registryEvent(m *message) {
 				s.dmabuf = s.bind(name, iface, dmabufVersion)
 			}
 		case "zwlr_screencopy_manager_v1":
-			// Only a wallpaper needs to know what covers it.
-			if s.cfg.Layer == LayerBackground {
-				s.screencopyVer = minU32(version, screencopyVersion)
-				s.screencopy = s.bind(name, iface, s.screencopyVer)
-			}
-		case "wl_seat":
-			// Only a screensaver listens to input, and only the first seat.
-			if s.cfg.Layer == LayerOverlay && s.seat == 0 {
-				s.seat = s.bind(name, iface, minU32(version, seatVersion))
-			}
+			s.screencopyVer = minU32(version, screencopyVersion)
+			s.screencopy = s.bind(name, iface, s.screencopyVer)
 		}
 	case 1: // global_remove(name)
 		name := m.uint(0)
@@ -183,43 +165,6 @@ func (s *Surface) surfaceEvent(m *message) {
 		s.preferredScale = int(m.int(0))
 		s.pending.Configure = true
 		s.wake()
-	}
-}
-
-func (s *Surface) seatEvent(m *message) {
-	if m.opcode != 0 { // capabilities
-		return
-	}
-	caps := m.uint(0)
-	if caps&1 != 0 && s.pointer == 0 {
-		s.pointer = s.c.newID()
-		s.c.request(s.seat, 0, s.pointer) // get_pointer
-	}
-	if caps&2 != 0 && s.keyboard == 0 {
-		s.keyboard = s.c.newID()
-		s.c.request(s.seat, 1, s.keyboard) // get_keyboard
-	}
-}
-
-func (s *Surface) keyboardEvent(m *message) {
-	// key(serial, time, key, state): any key press ends the screensaver.
-	if m.opcode == 3 && m.uint(3) == 1 {
-		s.quit(nil)
-	}
-}
-
-func (s *Surface) pointerEvent(m *message) {
-	switch m.opcode {
-	case 0: // enter(serial, surface, x, y)
-		s.pointerX, s.pointerY = m.int(2), m.int(3)
-		s.c.request(s.pointer, 0, m.uint(0), 0, 0, 0) // set_cursor(serial, none): hide it
-	case 2: // motion(time, x, y)
-		dx, dy := (m.int(1)-s.pointerX)/256, (m.int(2)-s.pointerY)/256
-		if dx*dx+dy*dy > pointerSlack*pointerSlack {
-			s.quit(nil)
-		}
-	case 3, 4: // button, axis
-		s.quit(nil)
 	}
 }
 

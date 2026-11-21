@@ -8,14 +8,13 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/codetheuri/orbital-saver/internal/niri"
-	"github.com/codetheuri/orbital-saver/internal/power"
-	"github.com/codetheuri/orbital-saver/internal/scene"
-	"github.com/codetheuri/orbital-saver/internal/wayland"
+	"github.com/Contr0versy/orbital-background/internal/niri"
+	"github.com/Contr0versy/orbital-background/internal/power"
+	"github.com/Contr0versy/orbital-background/internal/scene"
+	"github.com/Contr0versy/orbital-background/internal/wayland"
 )
 
 type waylandOptions struct {
-	screensaver bool
 	output      string
 	scale       int
 	fps         int  // on AC
@@ -33,16 +32,15 @@ type waylandOptions struct {
 	palette     scene.Palette
 }
 
-// runWayland is the frame loop for a layer-shell surface. Unlike the X11
-// loop it is driven by the compositor: after each commit it waits for the
-// frame callback before drawing again. While the surface is hidden (under
+// runWayland is the frame loop for a layer-shell surface. It is driven by
+// the compositor: after each commit it waits for the frame callback before
+// drawing again. While the surface is hidden (under
 // a lock screen, on a screen that is off) the callback never comes, and the
 // loop sleeps with no timers running. A frame with no visible change is
 // not committed at all.
 func runWayland(o waylandOptions, system *scene.Scene) error {
 	cfg := wayland.Config{
-		Layer:      wayland.LayerBackground,
-		Namespace:  "orbital-saver",
+		Namespace:  "orbital-background",
 		Output:     o.output,
 		Scale:      o.scale,
 		Background: o.palette.Background,
@@ -51,10 +49,6 @@ func runWayland(o waylandOptions, system *scene.Scene) error {
 		FullRedraw: o.fullRedraw,
 		MaxRects:   o.damageRects,
 		DMABuf:     o.dmabuf,
-	}
-	if o.screensaver {
-		cfg.Layer = wayland.LayerOverlay
-		cfg.Namespace = "orbital-saver-screensaver"
 	}
 	surface, err := wayland.Open(cfg)
 	if err != nil {
@@ -70,7 +64,7 @@ func runWayland(o waylandOptions, system *scene.Scene) error {
 	if err != nil {
 		// Keep running at the AC rate rather than fail over a missing
 		// convenience.
-		fmt.Fprintln(os.Stderr, "orbital-saver: cannot watch the power supply:", err)
+		fmt.Fprintln(os.Stderr, "orbital-background: cannot watch the power supply:", err)
 	}
 
 	// Under niri, animate only the cells that show between windows, and
@@ -78,13 +72,12 @@ func runWayland(o waylandOptions, system *scene.Scene) error {
 	// until niri's animations settle; then a capture of the screen says
 	// what shows. While part is covered it is checked again now and then,
 	// for what niri does not report: the shell's panels, notifications.
-	// A screensaver covers the windows instead, so this is for wallpapers.
 	const settleDelay = 600 * time.Millisecond
 	const recheckEvery = 5 * time.Second
 	var layouts <-chan niri.State
 	var recheck <-chan time.Time
 	var overview bool
-	if !o.screensaver && o.skipCovered {
+	if o.skipCovered {
 		layouts, _ = niri.Watch() // not niri, or no socket: always animate
 	}
 	if layouts != nil {
@@ -122,7 +115,7 @@ func runWayland(o waylandOptions, system *scene.Scene) error {
 		statsTick = ticker.C
 		defer func() {
 			secs := time.Since(start).Seconds()
-			fmt.Fprintf(os.Stderr, "orbital-saver: total %.1f s, %d frames drawn, %d committed (%.1f/s), %d frame callbacks; %s\n",
+			fmt.Fprintf(os.Stderr, "orbital-background: total %.1f s, %d frames drawn, %d committed (%.1f/s), %d frame callbacks; %s\n",
 				secs, drawn, commits, float64(commits)/secs, frames, surface.Buffers())
 		}()
 	}
@@ -270,7 +263,7 @@ func runWayland(o waylandOptions, system *scene.Scene) error {
 			}
 
 		case <-statsTick:
-			fmt.Fprintf(os.Stderr, "orbital-saver: %s  %2d fps target, %5.1f commits/s, %5.1f frame callbacks/s, %3.0f%% showing\n",
+			fmt.Fprintf(os.Stderr, "orbital-background: %s  %2d fps target, %5.1f commits/s, %5.1f frame callbacks/s, %3.0f%% showing\n",
 				time.Now().Format("15:04:05"), fps,
 				float64(commits-tickCommits)/5, float64(frames-tickFrames)/5, 100*surface.Visible())
 			tickCommits, tickFrames = commits, frames

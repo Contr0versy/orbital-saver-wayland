@@ -3,7 +3,7 @@ package scene
 import (
 	"math"
 
-	"github.com/codetheuri/orbital-saver/internal/math3d"
+	"github.com/Contr0versy/orbital-background/internal/math3d"
 )
 
 // periodScale is the constant in Kepler's third law, T = periodScale·a^1.5,

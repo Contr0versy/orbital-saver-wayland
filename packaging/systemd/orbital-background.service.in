@@ -1,23 +1,23 @@
 # Live wallpaper for Wayland compositors with wlr-layer-shell (niri, sway,
 # Hyprland, river). Enable with:
 #
-#   systemctl --user enable --now orbital-saver.service
+#   systemctl --user enable --now orbital-background.service
 #
-# Options go in a drop-in (systemctl --user edit orbital-saver.service):
+# Options go in a drop-in (systemctl --user edit orbital-background.service):
 #
 #   [Service]
 #   ExecStart=
-#   ExecStart=@BINDIR@/orbital-saver --background --palette cyber --battery-fps 12
+#   ExecStart=@BINDIR@/orbital-background --palette cyber --battery-fps 12
 
 [Unit]
-Description=orbital-saver live wallpaper
-Documentation=https://github.com/codetheuri/orbital-saver
+Description=orbital-background live wallpaper
+Documentation=https://github.com/Contr0versy/orbital-background
 PartOf=graphical-session.target
 After=graphical-session.target
 Requisite=graphical-session.target
 
 [Service]
-ExecStart=@BINDIR@/orbital-saver --background
+ExecStart=@BINDIR@/orbital-background
 Restart=on-failure
 RestartSec=2
 

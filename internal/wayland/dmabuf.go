@@ -54,7 +54,7 @@ func newDMABufMemory(n, size int) (*dmabufMemory, error) {
 	defer syscall.Close(dev)
 
 	size = (size + pageSize - 1) &^ (pageSize - 1)
-	name := []byte("orbital-saver-dmabuf\x00")
+	name := []byte("orbital-background-dmabuf\x00")
 	fd, _, errno := syscall.Syscall(sysMemfdCreate, uintptr(unsafe.Pointer(&name[0])), mfdCloexec|mfdAllowSealing, 0)
 	if errno != 0 {
 		return nil, fmt.Errorf("cannot create a memfd: %w", errno)

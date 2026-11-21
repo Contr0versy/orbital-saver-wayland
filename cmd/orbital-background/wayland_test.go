@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/codetheuri/orbital-saver/internal/power"
+	"github.com/Contr0versy/orbital-background/internal/power"
 )
 
 func TestSnapFPS(t *testing.T) {

@@ -4,7 +4,7 @@ import (
 	"image/color"
 	"testing"
 
-	"github.com/codetheuri/orbital-saver/internal/scene"
+	"github.com/Contr0versy/orbital-background/internal/scene"
 )
 
 var (

@@ -58,7 +58,7 @@ func (m *sharedMemory) release() {
 // $XDG_RUNTIME_DIR (a tmpfs) that is unlinked straight away.
 func anonymousFile() (int, error) {
 	if sysMemfdCreate != 0 {
-		name := []byte("orbital-saver\x00")
+		name := []byte("orbital-background\x00")
 		const mfdCloexec = 1
 		fd, _, errno := syscall.Syscall(sysMemfdCreate,
 			uintptr(unsafe.Pointer(&name[0])), mfdCloexec, 0)
@@ -66,7 +66,7 @@ func anonymousFile() (int, error) {
 			return int(fd), nil
 		}
 	}
-	f, err := os.CreateTemp(os.Getenv("XDG_RUNTIME_DIR"), "orbital-saver-*")
+	f, err := os.CreateTemp(os.Getenv("XDG_RUNTIME_DIR"), "orbital-background-*")
 	if err != nil {
 		return -1, err
 	}
